@@ -104,6 +104,23 @@ with c1:
 with c2:
     prescrizioni_enti = st.text_input("Prescrizioni Enti/Autorità locali (se presenti)", "Nessuna / Non applicabile")
 
+
+# =========================
+# CRITERIO DI PROGETTO (ESTESO - da relazione tecnico-specialistica)
+# =========================
+st.subheader("Criterio di progetto degli impianti (testo esteso)")
+st.caption(
+    "Questo capitolo riprende la relazione tecnico-specialistica (con formule). "
+    "Se lo disattivi, non verrà stampato nel PDF."
+)
+includi_criterio = st.checkbox("Includi capitolo 3 esteso (criterio di progetto)", value=True)
+cosphi_ricarica = st.number_input(
+    "Fattore di potenza (cosφ) per linee prese di ricarica (se presenti)",
+    min_value=0.50, max_value=1.00, value=0.99, step=0.01
+)
+criterio_note = st.text_area("Note/integrazioni al capitolo 3 (opzionale)", "", height=90)
+
+
 st.divider()
 
 # =========================
@@ -394,6 +411,104 @@ if st.button("Genera PDF"):
             "Esito": r.get("Esito",""),
         })
 
+
+    # === CAPITOLO 3 - CRITERIO DI PROGETTO (ESTESO) ===
+    criterio_testo = ""
+    if includi_criterio:
+        # Tipi cavo usati nelle linee (se presenti)
+        try:
+            tipi_cavo_usati = ", ".join(sorted(set([str(x) for x in linee_df_calc.get("Tipo_cavo", []).dropna().tolist()])))
+        except Exception:
+            tipi_cavo_usati = "N.D."
+
+        criterio_testo = (
+f"""Tutti i materiali e le apparecchiature utilizzati devono essere di alta qualità, prodotti da aziende affidabili, ben lavorati e adatti all'uso previsto, resistendo a sollecitazioni meccaniche, corrosione, calore, umidità e acque meteoriche (per installazione all’esterno). Devono garantire lunga durata, facilità di ispezione e manutenzione.
+È obbligatorio l'uso di componenti con marcatura CE e, se disponibile, marchio IMQ o equivalente europeo. I componenti senza marcatura CE devono avere una dichiarazione di conformità del costruttore ai requisiti di sicurezza delle normative CEI, UNI o IEC.
+
+3.1 Dimensionamento delle linee
+Le linee elettriche sono calcolate mediante l’utilizzo dei seguenti criteri progettuali:
+• La corrente di impiego (Ib) è calcolata considerando la potenza nominale delle apparecchiature elettriche. La tensione di alimentazione è pari a 230 V per le utenze monofase, 400 V per le utenze trifase. Fattore di potenza pari a {cosphi_ricarica:.2f} per le linee di alimentazione delle prese di ricarica (se presenti).
+• La corrente nominale della protezione (In), definita dal costruttore, è considerata come la corrente che l’interruttore può sopportare per un tempo indefinito senza che quest’ultimo subisca alcun danno.
+• La portata del cavo (Iz) è calcolata utilizzando le tabelle CEI UNEL 35024 e 35026, tenendo conto delle condizioni di posa, del tipo di isolante del cavo e della temperatura ambiente.
+I cavi di alimentazione sono dimensionati in modo da non subire danneggiamento causato da sovraccarichi e cortocircuiti mediante il coordinamento con la corrente nominale (In) del dispositivo di protezione a monte (vedi paragrafi 3.5.1 e 3.5.2).
+
+3.2 Calcolo della sezione del cavo in funzione della corrente di impiego (Ib)
+Nota la potenza assorbita dall’utenza, la corrente d’impiego (Ib) può essere calcolata come:
+Ib = (Ku · P) / (k · Vn · cosφ)
+
+dove:
+• k = 1 per i circuiti monofase; k = √3 per i circuiti trifase;
+• Ku è il coefficiente di utilizzazione della potenza nominale del carico;
+• P è la potenza totale dell’utenza [W];
+• Vn è la tensione nominale del sistema [V].
+Determinata la corrente di impiego per ogni utenza, è possibile dimensionare il cavo con portata Iz > Ib.
+
+3.3 Caduta di tensione
+Dopo aver determinato la sezione del cavo in funzione della corrente d’impiego, si verifica la caduta di tensione con la formula:
+ΔV = K · (R·cosφ + X·sinφ) · L · I
+
+dove:
+• K = 2 per le linee monofase (230 V); K = √3 per le linee trifase (400 V);
+• R e X sono resistenza e reattanza per unità di lunghezza [Ω/km];
+• I è la corrente di impiego;
+• L è la lunghezza della linea [m].
+La caduta di tensione percentuale è:
+ΔV% = (ΔV / Vn) · 100
+La caduta di tensione percentuale complessiva non deve superare {dv_lim:.1f}% (rif. CEI 64-8 art. 525).
+
+3.4 Sezione e tipologia dei cavi utilizzati
+I cavi utilizzati sono conformi al Regolamento UE 305/2011 (CPR), all’unificazione UNEL e alle norme costruttive CEI.
+Per il dimensionamento dei conduttori di neutro e del conduttore di protezione (PE) si fa riferimento alla CEI 64-8/5 par. 543.1.2 tabella 54F:
+• per sezione fase Sf ≤ 16 mm²: SPE = Sf
+• per 16 < Sf ≤ 35 mm²: SPE = 16 mm²
+• per Sf > 35 mm²: SPE = Sf/2
+Qualora il PE non faccia parte della conduttura di alimentazione (CEI 64-8/5 par. 543.1.3), valgono i criteri sopra con minimi: 2,5 mm² Cu (con protezione meccanica) o 4 mm² Cu (senza protezione meccanica).
+
+3.4.1 Tipologia dei cavi
+I cavi impiegati nel progetto (in funzione delle tratte e delle modalità di posa) appartengono alle tipologie selezionate nei circuiti: {tipi_cavo_usati}.
+Esempi (se pertinenti):
+• FG16(M)16 / FG16(O)M16 (o similari) per dorsali/esterni Uo/U 0,6/1 kV (HEPR G16 + guaina R16) – CEI UNEL 35318/35322.
+• FS17 450/750 V per cablaggi interni quadro e PE (unipolare senza guaina, PVC S17, CPR).
+
+3.4.2 Posa dei cavi
+Le tipologie di posa sono indicate nella tabella circuiti (campo “Posa”) e possono comprendere: tubazioni incassate/esterne, canalizzazioni, passerelle, tubazioni interrate, ecc. Gli attraversamenti di pareti/solai saranno ripristinati, ove necessario, con sigillature idonee a mantenere la compartimentazione.
+
+3.4.3 Colorazione dei conduttori
+I conduttori sono identificati secondo CEI-UNEL 00722 e 00712:
+• PE: giallo/verde; • Neutro: blu; • Fasi: marrone/grigio/nero.
+
+3.5 Protezioni dalle sovracorrenti
+La protezione dalle sovracorrenti è assicurata da interruttori automatici magnetotermici dimensionati affinché le curve I–t si mantengano al di sotto delle curve dei cavi protetti. Gli interruttori devono:
+• interrompere sovraccarichi e cortocircuiti prima di danni all’isolamento;
+• essere installati all’origine di ogni circuito/derivazione con portate differenti;
+• avere PdI/Icu > Icc presunta nel punto di installazione.
+
+3.5.1 Sovraccarichi (CEI 64-8 art. 433.2)
+Ib ≤ In ≤ Iz
+If ≤ 1,45 · Iz
+
+3.5.2 Cortocircuiti (CEI 64-8 art. 434.3)
+I² · t ≤ K² · S²
+
+3.6 Protezione dai contatti indiretti
+La protezione contro i contatti indiretti è realizzata mediante interruzione automatica dell’alimentazione (TT/TN) e/o componenti a doppio isolamento.
+
+3.6.1 Sistema TT (CEI 64-8 art. 413.1.4.2)
+Idn ≤ UL / Rt
+con UL = {ul_tt:.0f} V (ambiente ordinario) e Rt resistenza complessiva terra+conduttori di protezione.
+
+3.7 Protezione dai contatti diretti (CEI 64-8 art. 412)
+Isolamento delle parti attive e/o involucri/barriere (minimo IPXXB; superfici orizzontali a portata di mano: IPXXD). Vernici/smalti da soli non sono idonei.
+
+3.8 Potere di interruzione delle apparecchiature
+Icc-max < PdI (Icu) del dispositivo di protezione (rif. CEI EN 60947-2).
+
+3.9 Quadri elettrici
+Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cablaggio interno con conduttori idonei (es. FS17 CPR) e dimensionato per corrente nominale e cortocircuito nel punto di installazione.
+
+{("Integrazioni: " + criterio_note) if criterio_note.strip() else ""}"""
+        )
+
     payload = {
         "committente_nome": committente,
         "impianto_indirizzo": luogo,
@@ -401,6 +516,7 @@ if st.button("Genera PDF"):
         "progettista_blocco": PROGETTISTA_BLOCCO,
         "premessa": premessa,
         "norme": norme,
+        "criterio_progetto": criterio_testo,
         "dati_tecnici": dati_tecnici,
         "descrizione_impianto": descrizione_impianto,
         "confini": confini_txt,

@@ -109,6 +109,14 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(_p(data.get("norme",""), styles["BodyText"]))
     story.append(Spacer(1, 8))
 
+    # CAPITOLO 3 - Criterio di progetto (esteso) se presente
+    criterio = data.get("criterio_progetto","")
+    if _meaningful(criterio):
+        story.append(_p("CAPITOLO 3 - CRITERIO DI PROGETTO DEGLI IMPIANTI", styles["Heading2"]))
+        story.append(_p(criterio, styles["BodyText"]))
+        story.append(Spacer(1, 10))
+
+
     story.append(_p("CAPITOLO 3 - DATI GENERALI E SOGGETTI COINVOLTI (SINTESI)", styles["Heading2"]))
     impresa = data.get("impresa","")
     if _meaningful(impresa):
