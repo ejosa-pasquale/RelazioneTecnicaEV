@@ -97,7 +97,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(_kv_table(ident, [55*mm, 119*mm]))
     story.append(Spacer(1, 10))
 
-    story.append(_p("3.3 Progettista / Tecnico redattore (se applicabile)", styles["Heading2"]))
+    story.append(_p("Progettista / Tecnico redattore (se applicabile)", styles["Heading2"]))
     story.append(_p(data.get("progettista_blocco",""), styles["BodyText"]))
     story.append(Spacer(1, 8))
 
@@ -117,28 +117,28 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(Spacer(1, 10))
 
 
-    story.append(_p("CAPITOLO 3 - DATI GENERALI E SOGGETTI COINVOLTI (SINTESI)", styles["Heading2"]))
+    story.append(_p("CAPITOLO 4 - DATI GENERALI E SOGGETTI COINVOLTI (SINTESI)", styles["Heading2"]))
     impresa = data.get("impresa","")
     if _meaningful(impresa):
         story.append(_p(f"Impresa installatrice: {impresa}", styles["BodyText"]))
     story.append(_p(data.get("dati_tecnici",""), styles["BodyText"]))
     story.append(Spacer(1, 8))
 
-    story.append(_p("CAPITOLO 4 - DESCRIZIONE DELL’IMPIANTO E OPERE ESEGUITE", styles["Heading2"]))
+    story.append(_p("CAPITOLO 5 - DESCRIZIONE DELL’IMPIANTO E OPERE ESEGUITE", styles["Heading2"]))
     story.append(_p(data.get("descrizione_impianto",""), styles["BodyText"]))
     story.append(Spacer(1, 8))
 
     # Confini intervento solo se valorizzati
     conf = data.get("confini","")
     if _meaningful(conf):
-        story.append(_p("4.1.4 Confini dell’intervento e interfacce", styles["Heading3"]))
+        story.append(_p("5.1.4 Confini dell’intervento e interfacce", styles["Heading3"]))
         story.append(_p(conf, styles["BodyText"]))
         story.append(Spacer(1, 10))
 
     # Quadri solo se presenti
     quadri = data.get("quadri", [])
     if quadri:
-        story.append(_p("4.2 Quadri elettrici e distribuzione", styles["Heading3"]))
+        story.append(_p("5.2 Quadri elettrici e distribuzione", styles["Heading3"]))
         story.append(_p("Tabella quadri (compilazione sintetica):", styles["BodyText"]))
         tdata = [
             [_p("Quadro", th), _p("Ubicazione", th), _p("IP", th),
@@ -169,8 +169,8 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     # Linee solo se presenti
     linee = data.get("linee", [])
     if linee:
-        story.append(_p("CAPITOLO 5 - CRITERI DI PROGETTO E DIMENSIONAMENTO (SINTESI)", styles["Heading2"]))
-        story.append(_p("5.2 Elenco circuiti, cavi e protezioni", styles["Heading3"]))
+        story.append(_p("CAPITOLO 6 - CRITERI DI PROGETTO E DIMENSIONAMENTO (SINTESI)", styles["Heading2"]))
+        story.append(_p("6.2 Elenco circuiti, cavi e protezioni", styles["Heading3"]))
         story.append(_p("Di seguito si riporta l’elenco sintetico dei circuiti principali:", styles["BodyText"]))
 
         tdata = [[
