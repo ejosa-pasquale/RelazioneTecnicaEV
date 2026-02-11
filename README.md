@@ -14,3 +14,8 @@ streamlit run app.py
 ## Note
 - Il PDF è generato direttamente (ReportLab).
 - Le verifiche sono volutamente **sintetiche** (supporto alla DiCo) e non sostituiscono un progetto di calcolo completo.
+
+
+## Miglioramenti v3
+- Campi aggiuntivi per evitare placeholder nel PDF (fonte dati, prescrizioni enti, VV.F./CPI, firma).
+- Tabelle PDF con larghezze corrette e intestazioni su più righe (miglior UX).

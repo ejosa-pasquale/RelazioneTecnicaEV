@@ -96,6 +96,14 @@ amb_altro = ""
 if "Altro" in ambienti:
     amb_altro = st.text_input("Specificare 'Altro'", "XXXX (Inserire)")
 
+# Campi per eliminare XXXX in premessa/norme
+st.subheader("Fonti dati e prescrizioni (per evitare 'XXXX' nel PDF)")
+c1, c2 = st.columns(2)
+with c1:
+    fonte_dati = st.text_input("Fonte dati fornitura/condizioni (Committente/Impresa/Gestore)", "Committente")
+with c2:
+    prescrizioni_enti = st.text_input("Prescrizioni Enti/Autorità locali (se presenti)", "Nessuna / Non applicabile")
+
 st.divider()
 
 # =========================
@@ -140,7 +148,7 @@ default_linee = pd.DataFrame([
     {"Circuito/Linea":"L1", "Destinazione/Utilizzo":"Prese", "Potenza_kW":2.0, "Posa":"XXXX", "Lunghezza_m":25,
      "Tipo_cavo":"FG16OM16", "Formazione":"3G", "Sezione_mm2":2.5,
      "Protezione (MT/MTD)":"MT 16A curva C", "Curva":"C", "In_A":16,
-     "Differenziale (tipo/Idn)":"Tipo A 30mA", "Idn_A":0.03,
+     "Differenziale (tipo/Idn)":"Tipo A 30mA", "Tipo_diff":"A", "Idn_mA":30,
      "Ra_Ohm (solo TT)":30.0},
 ])
 
@@ -152,6 +160,8 @@ linee_df = st.data_editor(
     column_config={
         "Tipo_cavo": st.column_config.SelectboxColumn("Tipo cavo", options=CAVI_TIPO, required=True),
         "Formazione": st.column_config.TextColumn("Formazione (es. 3G / 5G)", help="Esempio: 3G per monofase+PE, 5G per trifase+N+PE."),
+        "Tipo_diff": st.column_config.SelectboxColumn("Tipo diff", options=["AC","A","F","B"], required=False),
+        "Idn_mA": st.column_config.NumberColumn("Idn (mA)", min_value=0, max_value=3000, step=1),
     }
 )
 
@@ -170,9 +180,9 @@ def valuta_linea(row):
     note = []
     if sistema == "TT":
         ra = float(row.get("Ra_Ohm (solo TT)") or 0.0)
-        idn = float(row.get("Idn_A") or 0.0)
-        if ra > 0 and idn > 0:
-            ok_tt = verifica_tt_ra_idn(ra, idn, ul=ul_tt)
+        idn_a = float(row.get("Idn_mA") or 0.0) / 1000.0
+        if ra > 0 and idn_a > 0:
+            ok_tt = verifica_tt_ra_idn(ra, idn_a, ul=ul_tt)
             note.append("TT OK" if ok_tt else "TT NO")
             if not ok_tt:
                 esito = "TT"
@@ -195,7 +205,7 @@ st.dataframe(linee_df_calc, use_container_width=True)
 st.divider()
 
 # =========================
-# SICUREZZA / TERRA / SPD
+# SICUREZZA / TERRA / SPD + CPI
 # =========================
 st.subheader("Sicurezza elettrica, terra, SPD (sintesi)")
 
@@ -207,8 +217,17 @@ with c1:
 with c2:
     spd_esito = st.selectbox("Protezione contro sovratensioni (SPD) – esito", ["Non previsto", "Previsto", "Presente preesistente"], index=0)
     spd_tipo = st.multiselect("Se installato: tipologia SPD", ["Tipo 1", "Tipo 2", "Tipo 3"], default=[])
-    spd_quadro = st.text_input("Quadro di installazione SPD (se pertinente)", "XXXX (Inserire)")
-    spd_caratt = st.text_input("Caratteristiche principali SPD (se pertinente)", "XXXX (Inserire)")
+    spd_quadro = st.text_input("Quadro di installazione SPD (se pertinente)", "Non pertinente")
+    spd_caratt = st.text_input("Caratteristiche principali SPD (se pertinente)", "Non pertinente")
+
+st.subheader("Prevenzione incendi / VV.F. (se pertinente)")
+c1, c2, c3 = st.columns(3)
+with c1:
+    attivita_vvf = st.selectbox("Attività soggetta VV.F. (DPR 151/2011)", ["Non pertinente", "Sì", "No (da verificare)"], index=0)
+with c2:
+    cpi = st.selectbox("CPI / SCIA antincendio", ["Non pertinente", "Presente", "Non presente", "In corso"], index=0)
+with c3:
+    vvf_note = st.text_input("Note VV.F. (se pertinente)", "—")
 
 st.divider()
 
@@ -218,16 +237,30 @@ st.divider()
 st.subheader("Verifiche, prove e collaudi (registro sintetico)")
 
 ver_df = pd.DataFrame([
-    {"Prova / Verifica":"Esame a vista", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
-    {"Prova / Verifica":"Continuità PE ed equipotenziale", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
-    {"Prova / Verifica":"Resistenza di isolamento", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
-    {"Prova / Verifica":"Prova differenziali (Idn/tempo)", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
-    {"Prova / Verifica":"Polarità / sequenza fasi (se pertinente)", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
-    {"Prova / Verifica":"TT: misura Ra e coordinamento con Idn (se TT)", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
-    {"Prova / Verifica":"TN: misura Zs e verifica intervento (se TN)", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
-    {"Prova / Verifica":"Altre prove (SPD, emergenza, comandi, ecc.)", "Esito":"XXXX (Inserire)", "Strumento":"XXXX (Inserire)", "Note":"XXXX (Inserire)"},
+    {"Prova / Verifica":"Esame a vista", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Continuità PE ed equipotenziale", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Resistenza di isolamento", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Prova differenziali (Idn/tempo)", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Polarità / sequenza fasi (se pertinente)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"TT: misura Ra e coordinamento con Idn (se TT)", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"TN: misura Zs e verifica intervento (se TN)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Altre prove (SPD, emergenza, comandi, ecc.)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
 ])
 ver_df = st.data_editor(ver_df, num_rows="dynamic", use_container_width=True, key="verifiche")
+
+st.divider()
+
+# =========================
+# FIRMA
+# =========================
+st.subheader("Firma (stampa nel PDF)")
+c1, c2, c3 = st.columns(3)
+with c1:
+    luogo_firma = st.text_input("Luogo firma", "XXXX (Inserire)")
+with c2:
+    data_firma = st.date_input("Data firma", value=data_doc)
+with c3:
+    firmatario = st.text_input("Firmatario", "Ing. Pasquale Senese")
 
 st.divider()
 
@@ -236,30 +269,30 @@ st.divider()
 # =========================
 st.subheader("Genera PDF")
 
+amb_txt = ", ".join([a for a in ambienti if a != "Altro"])
+if "Altro" in ambienti:
+    amb_txt += f", Altro: {amb_altro}"
+
 premessa = f"""La presente relazione tecnica è redatta a supporto della Dichiarazione di Conformità (DiCo) dell’impianto elettrico realizzato presso: {luogo}, per conto della committenza: {committente}. Il documento descrive le scelte progettuali e realizzative, i criteri di dimensionamento e le verifiche previste/effettuate, in conformità alle normative vigenti e alle regole dell’arte.
 
 Nota sul ruolo: la presente Relazione Tecnica è redatta a supporto della Dichiarazione di Conformità (DiCo) rilasciata dall’Impresa installatrice ai sensi del D.M. 37/2008. La Relazione descrive l’impianto e le verifiche previste/effettuate e non sostituisce la DiCo né i relativi allegati obbligatori. Il Progettista/Tecnico redattore assume responsabilità nei limiti dell’incarico conferito (progettazione e/o verifica/collaudo, ove formalmente previsto).
 
 L’intervento riguarda: {oggetto}
 
-Assunzioni e fonti: le informazioni relative a fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da XXXX (Committente/Impresa/Gestore) e/o rilevate in sito in data {data_doc.strftime('%d/%m/%Y')}. Eventuali parti preesistenti non oggetto di intervento sono indicate nel paragrafo “Confini dell’intervento”.
+Assunzioni e fonti: le informazioni relative a fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da: {fonte_dati} e/o rilevate in sito in data {data_doc.strftime('%d/%m/%Y')}. Eventuali parti preesistenti non oggetto di intervento sono indicate nel paragrafo “Confini dell’intervento”.
 """
 
-norme = """Si riportano i principali riferimenti legislativi e normativi applicabili (elenco non esaustivo):
+norme = f"""Si riportano i principali riferimenti legislativi e normativi applicabili (elenco non esaustivo):
 
-• D.M. 22/01/2008 n. 37 (Regolamento per l’installazione degli impianti all’interno degli edifici).
-• Legge 01/03/1968 n. 186 (regola dell’arte e norme CEI).
-• D.Lgs. 09/04/2008 n. 81 e s.m.i. (sicurezza nei luoghi di lavoro).
-• D.P.R. 22/10/2001 n. 462 (messa a terra e protezione scariche atmosferiche, ove applicabile).
-• Norme CEI applicabili, con particolare riferimento a: CEI 64-8, CEI 0-2, CEI 0-21/0-16 (se applicabili), CEI EN 61439 (quadri), CEI EN 60529 (IP), CEI 64-14 (verifiche), CEI 0-10 (manutenzione), CEI 81-10 (fulmini/LPS, se applicabile).
+• D.M. 22/01/2008 n. 37.
+• Legge 01/03/1968 n. 186.
+• D.Lgs. 09/04/2008 n. 81 e s.m.i.
+• D.P.R. 22/10/2001 n. 462 (ove applicabile).
+• Norme CEI applicabili (in particolare CEI 64-8, CEI 64-14, CEI EN 61439, CEI EN 60529; e, se pertinenti, CEI 81-10, CEI 0-10, CEI 0-21/0-16).
 • Regolamento Prodotti da Costruzione (UE) 305/2011 (CPR) e norme CEI-UNEL per i cavi (ove applicabile).
 
-Eventuali ulteriori prescrizioni di Enti/Autorità locali (VV.F., gestore di rete, regolamenti condominiali, ecc.): XXXX (Inserire).
+Eventuali ulteriori prescrizioni di Enti/Autorità locali: {prescrizioni_enti}.
 """
-
-amb_txt = ", ".join([a for a in ambienti if a != "Altro"])
-if "Altro" in ambienti:
-    amb_txt += f", Altro: {amb_altro}"
 
 dati_tecnici = f"""Tipo sistema di distribuzione: {sistema}. Tensione nominale: {tensione}. Potenza disponibile/contrattuale: {potenza_disp_kw}.
 POD: {pod} – contatore ubicato in: {contatore_ubi}.
@@ -268,16 +301,15 @@ Ambientazioni particolari (se presenti): {amb_txt}.
 """
 
 descrizione_impianto = f"""Il sito di intervento è ubicato in {luogo}. L’impianto è alimentato in bassa tensione dal punto di consegna del Distributore (POD: {pod}), tramite contatore/quadretto di misura ubicato in {contatore_ubi}.
-
 Tipo sistema di distribuzione: {sistema}. Tensione nominale: {tensione}. Potenza disponibile/contrattuale: {potenza_disp_kw}.
 
-La ripartizione e distribuzione interna avviene mediante linee in cavo conforme CEI/UNEL e componenti marcati CE (e, ove disponibile, IMQ o equivalente).
+La ripartizione e distribuzione interna avviene mediante linee in cavo conforme CEI/UNEL e componenti marcati CE (e, ove disponibile, IMQ o equivalente). Le condutture sono posate in tubazioni/canalizzazioni idonee e con protezione meccanica adeguata; i circuiti risultano identificati e separati per destinazione d’uso (illuminazione, prese, ausiliari, ecc.), privilegiando la manutenibilità.
 
 Scopo dell’intervento (descrizione sintetica): {oggetto}
 
-Le opere impiantistiche previste comprendono, in funzione dell’intervento, la realizzazione e/o modifica di linee di alimentazione dedicate, installazione di prese e punti di utilizzo, posa di tubazioni/canalizzazioni, installazione o adeguamento di quadri elettrici (generale e/o di zona), apparecchi di protezione e comando, morsetterie e accessori, nonché collegamenti al sistema di protezione (PE) e ai collegamenti equipotenziali.
+Le opere impiantistiche previste comprendono, in funzione dell’intervento, la realizzazione e/o modifica di linee di alimentazione dedicate, installazione di punti di utilizzo, posa di tubazioni/canalizzazioni, installazione o adeguamento di quadri elettrici (generale e/o di zona), apparecchi di protezione e comando, morsetterie e accessori, nonché collegamenti al sistema di protezione (PE) e ai collegamenti equipotenziali.
 
-La distribuzione in bassa tensione avviene a partire dal punto di consegna/contatore e dai quadri esistenti, con realizzazione di linee in cavo e condutture posate in tubazioni/canalizzazioni idonee. Le linee di distribuzione e i circuiti terminali sono organizzati per destinazione d’uso (prese, illuminazione, ausiliari, ecc.), privilegiando la separazione funzionale e la facilità di manutenzione. I conduttori sono identificati secondo codifica colori (PE giallo-verde, N blu, fasi marrone/nero/grigio) e marcatura/etichettatura.
+I conduttori sono identificati secondo codifica colori (PE giallo-verde, N blu, fasi marrone/nero/grigio) e marcatura/etichettatura dove previsto. I dispositivi di protezione sono coordinati con le linee e con il sistema di distribuzione (TT/TN) in modo coerente con le norme tecniche applicabili.
 """
 
 confini_txt = f"""L’intervento comprende: {compresi}
@@ -287,26 +319,38 @@ Sono esclusi: {esclusi}
 Integrazione con impianto esistente: {integrazione}. {("Descrizione e limiti: " + integrazione_note) if integrazione == "Sì" else ""}
 """
 
+# Costruisci frase "Idn/tipo" a partire dai dati delle linee (se presenti)
+diff_tipici = []
+for _, r in linee_df_calc.iterrows():
+    td = str(r.get("Tipo_diff") or "").strip()
+    idn = int(r.get("Idn_mA") or 0)
+    if td and idn:
+        diff_tipici.append(f"Tipo {td} {idn} mA")
+diff_frase = ", ".join(sorted(set(diff_tipici))) if diff_tipici else "N.D."
+
+vvf_blocco = ""
+if attivita_vvf != "Non pertinente" or cpi != "Non pertinente":
+    vvf_blocco = f"Prevenzione incendi / VV.F.: attività soggetta: {attivita_vvf}; CPI/SCIA: {cpi}. Note: {vvf_note}."
+
 sicurezza = f"""La protezione contro i contatti diretti è assicurata tramite isolamento delle parti attive, involucri/barriere con grado di protezione adeguato e corretta posa delle condutture.
 
 La protezione contro i contatti indiretti è assicurata mediante interruzione automatica dell’alimentazione, in accordo con CEI 64-8, tramite dispositivi differenziali e/o magnetotermici coordinati con l’impianto di terra (nei sistemi TT) o con il conduttore di protezione (nei sistemi TN).
 
-Per i circuiti prese a uso generale è normalmente adottata protezione differenziale ad alta sensibilità: Idn = XXXX (tipicamente 30 mA), tipo: XXXX (AC / A / F / B in funzione dei carichi).
+Protezione differenziale adottata (sintesi): {diff_frase}.
 
 Configurazione impianto di terra: {terra_cfg}. Dispersore: {dispersore}. Collegamenti equipotenziali principali: {equipot}.
 
 Protezione contro le sovratensioni (SPD) – esito: {spd_esito}. {("Tipologia: " + ", ".join(spd_tipo) + " – ") if spd_tipo else ""}quadro: {spd_quadro}. Caratteristiche: {spd_caratt}.
 
 Caduta di tensione: verificata entro il limite adottato in progetto: {dv_lim:.1f}%.
+{vvf_blocco}
 """
 
-verifiche = """Ad ultimazione dei lavori, l’impianto è sottoposto alle verifiche previste dalla CEI 64-8 (Parte 6) e dalla CEI 64-14, con esecuzione e registrazione delle prove strumentali pertinenti al sistema di distribuzione (TT/TN) e alla tipologia di impianto. In particolare:
-
-"""
+verifiche = """Ad ultimazione dei lavori, l’impianto è sottoposto alle verifiche previste dalla CEI 64-8 (Parte 6) e dalla CEI 64-14, con esecuzione e registrazione delle prove strumentali pertinenti al sistema di distribuzione (TT/TN) e alla tipologia di impianto. In particolare:\n\n"""
 for _, r in ver_df.iterrows():
     verifiche += f"• {r.get('Prova / Verifica','')}: {r.get('Esito','')} – Strumento: {r.get('Strumento','')} – Note: {r.get('Note','')}\n"
 
-manutenzione = """L’esercizio e la manutenzione devono essere eseguiti da personale qualificato, secondo quanto indicato dai costruttori e dalla normativa tecnica (CEI 0-10). Si raccomanda l’esecuzione di controlli periodici e la registrazione degli interventi. Eventuali prescrizioni specifiche (es. per apparecchiature particolari): XXXX (Inserire)."""
+manutenzione = """L’esercizio e la manutenzione devono essere eseguiti da personale qualificato, secondo quanto indicato dai costruttori e dalla normativa tecnica (CEI 0-10). Si raccomanda l’esecuzione di controlli periodici e la registrazione degli interventi."""
 
 allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati. Gli allegati indicati come 'Obbligatorio' devono essere presenti nella documentazione finale; gli altri sono da allegare se disponibili o se pertinenti all’intervento.
 
@@ -337,7 +381,7 @@ if st.button("Genera PDF"):
         tipo = r.get("Tipo_cavo","")
         form = r.get("Formazione","")
         sez = r.get("Sezione_mm2","")
-        cavo_str = f"{tipo} {form}x{sez} mm²" if tipo and form and sez else "XXXX (Inserire)"
+        cavo_str = f"{tipo} {form}x{sez} mm²" if tipo and form and sez else ""
         linee_list.append({
             "Linea": r.get("Circuito/Linea",""),
             "Uso": r.get("Destinazione/Utilizzo",""),
@@ -366,7 +410,7 @@ if st.button("Genera PDF"):
         "verifiche": verifiche,
         "manutenzione": manutenzione,
         "allegati": allegati,
-        "firma": "Ing. Pasquale Senese",
+        "firma": firmatario,
         "oggetto_intervento": oggetto,
         "tipologia": tipologia,
         "sistema": sistema,
@@ -375,6 +419,8 @@ if st.button("Genera PDF"):
         "n_doc": n_doc,
         "rev": revisione,
         "impresa": impresa,
+        "luogo_firma": luogo_firma,
+        "data_firma": data_firma.strftime("%d/%m/%Y"),
     }
 
     pdf_bytes = genera_pdf_relazione_bytes(payload)

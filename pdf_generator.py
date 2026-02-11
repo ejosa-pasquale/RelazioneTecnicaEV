@@ -7,11 +7,11 @@ from xml.sax.saxutils import escape
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
 def _p(text: str, style):
-    safe = escape(text).replace("\n", "<br/>")
+    safe = escape(text or "").replace("\n", "<br/>")
     return Paragraph(safe, style)
 
 def _page_number(canvas, doc):
@@ -21,7 +21,7 @@ def _page_number(canvas, doc):
     canvas.restoreState()
 
 def _kv_table(rows: List[list], col_widths):
-    tbl = Table(rows, colWidths=col_widths)
+    tbl = Table(rows, colWidths=col_widths, hAlign="LEFT")
     tbl.setStyle(TableStyle([
         ("GRID",(0,0),(-1,-1),0.25,colors.grey),
         ("BACKGROUND",(0,0),(-1,0),colors.whitesmoke),
@@ -36,9 +36,14 @@ def _kv_table(rows: List[list], col_widths):
     return tbl
 
 def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
-    """Genera PDF 'Relazione Tecnica - Impianto Elettrico (DiCo)' allineato al template v7."""
+    """Genera PDF allineato al template v7 con tabelle impaginate correttamente."""
     buf = BytesIO()
     styles = getSampleStyleSheet()
+
+    # stili più leggibili per tabelle
+    th = ParagraphStyle("th", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
+    tc = ParagraphStyle("tc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
+
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
@@ -50,25 +55,24 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     )
 
     story: List[Any] = []
-
     story.append(_p("RELAZIONE TECNICA - IMPIANTO ELETTRICO (DiCo)", styles["Title"]))
     story.append(_p("Ai sensi del D.M. 37/2008 e norme tecniche applicabili", styles["BodyText"]))
     story.append(Spacer(1, 10))
 
     ident = [
         ["DATI IDENTIFICATIVI DOCUMENTO", ""],
-        ["Committente", data.get("committente_nome","XXXX (Inserire)")],
-        ["Luogo di installazione", data.get("impianto_indirizzo","XXXX (Inserire indirizzo completo)")],
-        ["Oggetto intervento", data.get("oggetto_intervento","XXXX (Inserire)")],
-        ["Tipologia impianto", data.get("tipologia","XXXX (Inserire)")],
-        ["Sistema di distribuzione", data.get("sistema","XXXX (Inserire)")],
-        ["Tensione/Frequenza", data.get("tensione","XXXX (Inserire)")],
-        ["Potenza impegnata / disponibile", data.get("potenza_disp","XXXX (Inserire)")],
-        ["N. documento", data.get("n_doc","XXXX (Inserire)")],
-        ["Revisione", data.get("rev","00")],
-        ["Data", data.get("data","XXXX (Inserire)")],
+        ["Committente", data.get("committente_nome","")],
+        ["Luogo di installazione", data.get("impianto_indirizzo","")],
+        ["Oggetto intervento", data.get("oggetto_intervento","")],
+        ["Tipologia impianto", data.get("tipologia","")],
+        ["Sistema di distribuzione", data.get("sistema","")],
+        ["Tensione/Frequenza", data.get("tensione","")],
+        ["Potenza impegnata / disponibile", data.get("potenza_disp","")],
+        ["N. documento", data.get("n_doc","")],
+        ["Revisione", data.get("rev","")],
+        ["Data", data.get("data","")],
     ]
-    story.append(_kv_table(ident, [55*mm, 120*mm]))
+    story.append(_kv_table(ident, [55*mm, 119*mm]))  # 174mm utili
     story.append(Spacer(1, 10))
 
     story.append(_p("3.3 Progettista / Tecnico redattore (se applicabile)", styles["Heading2"]))
@@ -84,7 +88,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(Spacer(1, 8))
 
     story.append(_p("CAPITOLO 3 - DATI GENERALI E SOGGETTI COINVOLTI (SINTESI)", styles["Heading2"]))
-    story.append(_p(f"Impresa installatrice: {data.get('impresa','XXXX (Inserire)')}", styles["BodyText"]))
+    story.append(_p(f"Impresa installatrice: {data.get('impresa','')}", styles["BodyText"]))
     story.append(_p(data.get("dati_tecnici",""), styles["BodyText"]))
     story.append(Spacer(1, 8))
 
@@ -96,57 +100,86 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(_p(data.get("confini",""), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
+    # Quadri
     story.append(_p("4.2 Quadri elettrici e distribuzione", styles["Heading3"]))
     story.append(_p("Tabella quadri (compilazione sintetica):", styles["BodyText"]))
     quadri = data.get("quadri", [])
     if quadri:
-        tdata = [["Quadro", "Ubicazione", "IP", "Interruttore generale (tipo/In)", "Differenziale generale (tipo/Idn, se presente)"]]
+        tdata = [
+            [_p("Quadro", th), _p("Ubicazione", th), _p("IP", th),
+             _p("Interruttore generale<br/>(tipo/In)", th),
+             _p("Differenziale generale<br/>(tipo/Idn)", th)]
+        ]
         for q in quadri:
-            tdata.append([q.get("Quadro",""), q.get("Ubicazione",""), q.get("IP",""), q.get("Generale",""), q.get("Diff","")])
-        tbl = Table(tdata, colWidths=[18*mm, 45*mm, 14*mm, 55*mm, 45*mm])
+            tdata.append([
+                _p(str(q.get("Quadro","")), tc),
+                _p(str(q.get("Ubicazione","")), tc),
+                _p(str(q.get("IP","")), tc),
+                _p(str(q.get("Generale","")), tc),
+                _p(str(q.get("Diff","")), tc),
+            ])
+        tbl = Table(tdata, colWidths=[16*mm, 40*mm, 12*mm, 52*mm, 54*mm], repeatRows=1, hAlign="LEFT")  # 174mm
         tbl.setStyle(TableStyle([
             ("BACKGROUND",(0,0),(-1,0),colors.whitesmoke),
             ("GRID",(0,0),(-1,-1),0.25,colors.grey),
-            ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
             ("VALIGN",(0,0),(-1,-1),"TOP"),
-            ("FONTSIZE",(0,0),(-1,-1),8),
+            ("LEFTPADDING",(0,0),(-1,-1),3),
+            ("RIGHTPADDING",(0,0),(-1,-1),3),
+            ("TOPPADDING",(0,0),(-1,-1),2),
+            ("BOTTOMPADDING",(0,0),(-1,-1),2),
         ]))
         story.append(tbl)
     else:
         story.append(_p("—", styles["BodyText"]))
     story.append(Spacer(1, 10))
 
+    # Linee
     story.append(_p("CAPITOLO 5 - CRITERI DI PROGETTO E DIMENSIONAMENTO (SINTESI)", styles["Heading2"]))
     story.append(_p("5.2 Elenco circuiti, cavi e protezioni", styles["Heading3"]))
     story.append(_p("Di seguito si riporta l’elenco sintetico dei circuiti principali:", styles["BodyText"]))
+
     linee = data.get("linee", [])
     if linee:
-        tdata = [["Circuito/Linea", "Destinazione/Utilizzo", "Posa / Lunghezza", "Cavo (tipo / sezione)", "Protezione (MT/MTD)", "Differenziale (tipo/Idn)", "ΔV %", "Esito"]]
+        tdata = [[
+            _p("Circuito<br/>/Linea", th),
+            _p("Destinazione<br/>/Utilizzo", th),
+            _p("Posa<br/>L (m)", th),
+            _p("Cavo<br/>(tipo/sezione)", th),
+            _p("Protezione<br/>(MT/MTD)", th),
+            _p("Differenziale<br/>(tipo/Idn)", th),
+            _p("ΔV %", th),
+            _p("Esito", th),
+        ]]
         for ln in linee:
-            posa = ln.get("Posa","")
+            posa = (ln.get("Posa","") or "").strip()
             ll = ln.get("L_m","")
-            posa_len = f"{posa} - {ll} m" if posa else f"{ll} m"
+            posa_len = f"{posa}\n{ll}" if posa else f"{ll}"
             tdata.append([
-                ln.get("Linea",""),
-                ln.get("Uso",""),
-                posa_len,
-                ln.get("Cavo",""),
-                ln.get("Protezione",""),
-                ln.get("Diff",""),
-                ln.get("DV_perc",""),
-                ln.get("Esito",""),
+                _p(str(ln.get("Linea","")), tc),
+                _p(str(ln.get("Uso","")), tc),
+                _p(str(posa_len), tc),
+                _p(str(ln.get("Cavo","")), tc),
+                _p(str(ln.get("Protezione","")), tc),
+                _p(str(ln.get("Diff","")), tc),
+                _p(str(ln.get("DV_perc","")), tc),
+                _p(str(ln.get("Esito","")), tc),
             ])
-        tbl = Table(tdata, colWidths=[18*mm, 34*mm, 32*mm, 34*mm, 32*mm, 32*mm, 14*mm, 14*mm])
+        # 174mm total
+        colw = [16*mm, 30*mm, 24*mm, 32*mm, 26*mm, 26*mm, 10*mm, 10*mm]
+        tbl = Table(tdata, colWidths=colw, repeatRows=1, hAlign="LEFT")
         tbl.setStyle(TableStyle([
             ("BACKGROUND",(0,0),(-1,0),colors.whitesmoke),
             ("GRID",(0,0),(-1,-1),0.25,colors.grey),
-            ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
             ("VALIGN",(0,0),(-1,-1),"TOP"),
-            ("FONTSIZE",(0,0),(-1,-1),7.6),
+            ("LEFTPADDING",(0,0),(-1,-1),3),
+            ("RIGHTPADDING",(0,0),(-1,-1),3),
+            ("TOPPADDING",(0,0),(-1,-1),2),
+            ("BOTTOMPADDING",(0,0),(-1,-1),2),
         ]))
         story.append(tbl)
     else:
         story.append(_p("—", styles["BodyText"]))
+
     story.append(Spacer(1, 10))
 
     story.append(_p("5.4 Protezione contro i contatti diretti e indiretti", styles["Heading3"]))
@@ -165,9 +198,9 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(_p(data.get("allegati",""), styles["BodyText"]))
 
     story.append(Spacer(1, 14))
-    story.append(_p("Luogo e data: XXXX (Inserire)", styles["BodyText"]))
+    story.append(_p(f"Luogo e data: {data.get('luogo_firma','')} – {data.get('data_firma','')}", styles["BodyText"]))
     story.append(Spacer(1, 10))
-    story.append(_p("Firma e timbro: XXXX (Inserire)", styles["BodyText"]))
+    story.append(_p(f"Firma e timbro: {data.get('firma','')}", styles["BodyText"]))
 
     doc.build(story, onFirstPage=_page_number, onLaterPages=_page_number)
     return buf.getvalue()
