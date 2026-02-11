@@ -35,12 +35,34 @@ def _kv_table(rows: List[list], col_widths):
     ]))
     return tbl
 
+def _meaningful(value: Any) -> bool:
+    if value is None:
+        return False
+    s = str(value).strip()
+    if not s:
+        return False
+    low = s.lower()
+    # parole/placeholder da non stampare
+    bad = {
+        "non pertinente", "non applicabile", "n/a", "na", "—", "-", "nessuna", "nessuna / non applicabile"
+    }
+    if low in bad:
+        return False
+    if "xxxx" in low:
+        return False
+    return True
+
+def _append_if(story: List[Any], title: str, text: str, styles):
+    if _meaningful(text):
+        story.append(_p(title, styles["Heading3"]))
+        story.append(_p(text, styles["BodyText"]))
+        story.append(Spacer(1, 8))
+
 def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
-    """Genera PDF allineato al template v7 con tabelle impaginate correttamente."""
+    """Genera PDF allineato al template v7 con contenuti condizionali (stampa solo ciò che serve)."""
     buf = BytesIO()
     styles = getSampleStyleSheet()
 
-    # stili più leggibili per tabelle
     th = ParagraphStyle("th", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
     tc = ParagraphStyle("tc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
 
@@ -72,7 +94,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         ["Revisione", data.get("rev","")],
         ["Data", data.get("data","")],
     ]
-    story.append(_kv_table(ident, [55*mm, 119*mm]))  # 174mm utili
+    story.append(_kv_table(ident, [55*mm, 119*mm]))
     story.append(Spacer(1, 10))
 
     story.append(_p("3.3 Progettista / Tecnico redattore (se applicabile)", styles["Heading2"]))
@@ -88,7 +110,9 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(Spacer(1, 8))
 
     story.append(_p("CAPITOLO 3 - DATI GENERALI E SOGGETTI COINVOLTI (SINTESI)", styles["Heading2"]))
-    story.append(_p(f"Impresa installatrice: {data.get('impresa','')}", styles["BodyText"]))
+    impresa = data.get("impresa","")
+    if _meaningful(impresa):
+        story.append(_p(f"Impresa installatrice: {impresa}", styles["BodyText"]))
     story.append(_p(data.get("dati_tecnici",""), styles["BodyText"]))
     story.append(Spacer(1, 8))
 
@@ -96,15 +120,18 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(_p(data.get("descrizione_impianto",""), styles["BodyText"]))
     story.append(Spacer(1, 8))
 
-    story.append(_p("4.1.4 Confini dell’intervento e interfacce", styles["Heading3"]))
-    story.append(_p(data.get("confini",""), styles["BodyText"]))
-    story.append(Spacer(1, 10))
+    # Confini intervento solo se valorizzati
+    conf = data.get("confini","")
+    if _meaningful(conf):
+        story.append(_p("4.1.4 Confini dell’intervento e interfacce", styles["Heading3"]))
+        story.append(_p(conf, styles["BodyText"]))
+        story.append(Spacer(1, 10))
 
-    # Quadri
-    story.append(_p("4.2 Quadri elettrici e distribuzione", styles["Heading3"]))
-    story.append(_p("Tabella quadri (compilazione sintetica):", styles["BodyText"]))
+    # Quadri solo se presenti
     quadri = data.get("quadri", [])
     if quadri:
+        story.append(_p("4.2 Quadri elettrici e distribuzione", styles["Heading3"]))
+        story.append(_p("Tabella quadri (compilazione sintetica):", styles["BodyText"]))
         tdata = [
             [_p("Quadro", th), _p("Ubicazione", th), _p("IP", th),
              _p("Interruttore generale<br/>(tipo/In)", th),
@@ -118,7 +145,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
                 _p(str(q.get("Generale","")), tc),
                 _p(str(q.get("Diff","")), tc),
             ])
-        tbl = Table(tdata, colWidths=[16*mm, 40*mm, 12*mm, 52*mm, 54*mm], repeatRows=1, hAlign="LEFT")  # 174mm
+        tbl = Table(tdata, colWidths=[16*mm, 40*mm, 12*mm, 52*mm, 54*mm], repeatRows=1, hAlign="LEFT")
         tbl.setStyle(TableStyle([
             ("BACKGROUND",(0,0),(-1,0),colors.whitesmoke),
             ("GRID",(0,0),(-1,-1),0.25,colors.grey),
@@ -129,17 +156,15 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
             ("BOTTOMPADDING",(0,0),(-1,-1),2),
         ]))
         story.append(tbl)
-    else:
-        story.append(_p("—", styles["BodyText"]))
-    story.append(Spacer(1, 10))
+        story.append(Spacer(1, 10))
 
-    # Linee
-    story.append(_p("CAPITOLO 5 - CRITERI DI PROGETTO E DIMENSIONAMENTO (SINTESI)", styles["Heading2"]))
-    story.append(_p("5.2 Elenco circuiti, cavi e protezioni", styles["Heading3"]))
-    story.append(_p("Di seguito si riporta l’elenco sintetico dei circuiti principali:", styles["BodyText"]))
-
+    # Linee solo se presenti
     linee = data.get("linee", [])
     if linee:
+        story.append(_p("CAPITOLO 5 - CRITERI DI PROGETTO E DIMENSIONAMENTO (SINTESI)", styles["Heading2"]))
+        story.append(_p("5.2 Elenco circuiti, cavi e protezioni", styles["Heading3"]))
+        story.append(_p("Di seguito si riporta l’elenco sintetico dei circuiti principali:", styles["BodyText"]))
+
         tdata = [[
             _p("Circuito<br/>/Linea", th),
             _p("Destinazione<br/>/Utilizzo", th),
@@ -153,7 +178,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         for ln in linee:
             posa = (ln.get("Posa","") or "").strip()
             ll = ln.get("L_m","")
-            posa_len = f"{posa}\n{ll}" if posa else f"{ll}"
+            posa_len = f"{posa}\n{ll}" if _meaningful(posa) else f"{ll}"
             tdata.append([
                 _p(str(ln.get("Linea","")), tc),
                 _p(str(ln.get("Uso","")), tc),
@@ -164,7 +189,6 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
                 _p(str(ln.get("DV_perc","")), tc),
                 _p(str(ln.get("Esito","")), tc),
             ])
-        # 174mm total
         colw = [16*mm, 30*mm, 24*mm, 32*mm, 26*mm, 26*mm, 10*mm, 10*mm]
         tbl = Table(tdata, colWidths=colw, repeatRows=1, hAlign="LEFT")
         tbl.setStyle(TableStyle([
@@ -177,30 +201,42 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
             ("BOTTOMPADDING",(0,0),(-1,-1),2),
         ]))
         story.append(tbl)
-    else:
-        story.append(_p("—", styles["BodyText"]))
+        story.append(Spacer(1, 10))
 
-    story.append(Spacer(1, 10))
-
+    # Sicurezza: stampa solo se meaningful (di base lo è)
     story.append(_p("5.4 Protezione contro i contatti diretti e indiretti", styles["Heading3"]))
     story.append(_p(data.get("sicurezza",""), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
-    story.append(_p("CAPITOLO 6 - VERIFICHE, PROVE E COLLAUDI", styles["Heading2"]))
-    story.append(_p(data.get("verifiche",""), styles["BodyText"]))
-    story.append(Spacer(1, 10))
+    # Verifiche: se tutto è vuoto non stampare (ma di solito serve)
+    ver = data.get("verifiche","")
+    if _meaningful(ver):
+        story.append(_p("CAPITOLO 6 - VERIFICHE, PROVE E COLLAUDI", styles["Heading2"]))
+        story.append(_p(ver, styles["BodyText"]))
+        story.append(Spacer(1, 10))
 
-    story.append(_p("CAPITOLO 7 - ESERCIZIO, MANUTENZIONE E AVVERTENZE", styles["Heading2"]))
-    story.append(_p(data.get("manutenzione",""), styles["BodyText"]))
-    story.append(Spacer(1, 10))
+    man = data.get("manutenzione","")
+    if _meaningful(man):
+        story.append(_p("CAPITOLO 7 - ESERCIZIO, MANUTENZIONE E AVVERTENZE", styles["Heading2"]))
+        story.append(_p(man, styles["BodyText"]))
+        story.append(Spacer(1, 10))
 
-    story.append(_p("CAPITOLO 8 - ALLEGATI", styles["Heading2"]))
-    story.append(_p(data.get("allegati",""), styles["BodyText"]))
+    allg = data.get("allegati","")
+    if _meaningful(allg):
+        story.append(_p("CAPITOLO 8 - ALLEGATI", styles["Heading2"]))
+        story.append(_p(allg, styles["BodyText"]))
 
-    story.append(Spacer(1, 14))
-    story.append(_p(f"Luogo e data: {data.get('luogo_firma','')} – {data.get('data_firma','')}", styles["BodyText"]))
-    story.append(Spacer(1, 10))
-    story.append(_p(f"Firma e timbro: {data.get('firma','')}", styles["BodyText"]))
+    # Firma: stampa solo se valorizzata
+    luogo_f = data.get("luogo_firma","")
+    data_f = data.get("data_firma","")
+    firma = data.get("firma","")
+    if _meaningful(luogo_f) or _meaningful(data_f) or _meaningful(firma):
+        story.append(Spacer(1, 14))
+        if _meaningful(luogo_f) or _meaningful(data_f):
+            story.append(_p(f"Luogo e data: {luogo_f} – {data_f}".strip(" –"), styles["BodyText"]))
+            story.append(Spacer(1, 8))
+        if _meaningful(firma):
+            story.append(_p(f"Firma e timbro: {firma}", styles["BodyText"]))
 
     doc.build(story, onFirstPage=_page_number, onLaterPages=_page_number)
     return buf.getvalue()

@@ -217,8 +217,8 @@ with c1:
 with c2:
     spd_esito = st.selectbox("Protezione contro sovratensioni (SPD) – esito", ["Non previsto", "Previsto", "Presente preesistente"], index=0)
     spd_tipo = st.multiselect("Se installato: tipologia SPD", ["Tipo 1", "Tipo 2", "Tipo 3"], default=[])
-    spd_quadro = st.text_input("Quadro di installazione SPD (se pertinente)", "Non pertinente")
-    spd_caratt = st.text_input("Caratteristiche principali SPD (se pertinente)", "Non pertinente")
+    spd_quadro = st.text_input("Quadro di installazione SPD (se pertinente)", "")
+    spd_caratt = st.text_input("Caratteristiche principali SPD (se pertinente)", "")
 
 st.subheader("Prevenzione incendi / VV.F. (se pertinente)")
 c1, c2, c3 = st.columns(3)
