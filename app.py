@@ -369,7 +369,7 @@ for _, r in ver_df.iterrows():
 
 manutenzione = """L’esercizio e la manutenzione devono essere eseguiti da personale qualificato, secondo quanto indicato dai costruttori e dalla normativa tecnica (CEI 0-10). Si raccomanda l’esecuzione di controlli periodici e la registrazione degli interventi."""
 
-allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati. Gli allegati indicati come 'Obbligatorio' devono essere presenti nella documentazione finale; gli altri sono da allegare se disponibili o se pertinenti all’intervento.
+allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati. 
 
 - Schema unifilare / multifilare dei quadri interessati: Obbligatorio.
 - Elenco linee/circuiti con cavo e protezione (tabella circuiti): Obbligatorio.
