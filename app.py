@@ -372,9 +372,8 @@ manutenzione = """L’esercizio e la manutenzione devono essere eseguiti da pers
 allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati. Gli allegati indicati come 'Obbligatorio' devono essere presenti nella documentazione finale; gli altri sono da allegare se disponibili o se pertinenti all’intervento.
 
 - Schema unifilare / multifilare dei quadri interessati: Obbligatorio.
-- Planimetrie con tracciati e posizionamento componenti: Obbligatorio.
 - Elenco linee/circuiti con cavo e protezione (tabella circuiti): Obbligatorio.
-- Verbali e report delle misure e prove strumentali: Obbligatorio.
+- Verbali e report delle misure e prove strumentali
 - Schede tecniche principali componenti (quadri, interruttori, SPD, ecc.): Se disponibile.
 - Dichiarazioni/Marcature CE (ed eventuale IMQ) dei materiali: Se disponibile.
 - Documentazione impianto di terra (schemi, misure, foto morsetti): Se pertinente.
