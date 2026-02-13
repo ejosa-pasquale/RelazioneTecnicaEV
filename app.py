@@ -299,7 +299,7 @@ Le informazioni relative a fornitura elettrica (POD, potenza disponibile/contrat
 
 L’intervento riguarda: {oggetto}
 
-Assunzioni e fonti: le informazioni relative a fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da: {fonte_dati} e/o rilevate in sito in data {data_doc.strftime('%d/%m/%Y')}. Eventuali parti preesistenti non oggetto di intervento sono indicate nel paragrafo “Confini dell’intervento”.
+Assunzioni e fonti: le informazioni relative a fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da: {fonte_dati} e/o rilevate e/o confermate dal commitente o ditta incaricata in data {data_doc.strftime('%d/%m/%Y')}. Eventuali parti preesistenti non oggetto di intervento sono indicate nel paragrafo “Confini dell’intervento”.
 """
 
 norme = f"""Si riportano i principali riferimenti legislativi e normativi applicabili (elenco non esaustivo):
