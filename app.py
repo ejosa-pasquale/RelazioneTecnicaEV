@@ -43,6 +43,7 @@ with c2:
 with c3:
     tensione = st.text_input("Tensione/Frequenza", "230/400 V - 50 Hz")
     potenza_disp_kw = st.text_input("Potenza impegnata / disponibile", "XXXX (Inserire)")
+    cod_progetto = st.text_input("Cod. Progetto", "XXXX (Inserire)")
     n_doc = st.text_input("N. documento", "XXXX (Inserire)")
     revisione = st.text_input("Revisione", "00")
     data_doc = st.date_input("Data", value=date.today())
@@ -523,6 +524,7 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "impianto_indirizzo": luogo,
         "data": data_doc.strftime("%d/%m/%Y"),
         "progettista_blocco": PROGETTISTA_BLOCCO,
+        "disclaimer_calcoli": "Nota: i calcoli riportati (se presenti) sono di sintesi e hanno finalità di supporto alla relazione e alla Dichiarazione di Conformità; non sostituiscono un progetto esecutivo completo.",
         "premessa": premessa,
         "norme": norme,
         "criterio_progetto": criterio_testo,
@@ -541,6 +543,7 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "sistema": sistema,
         "tensione": tensione,
         "potenza_disp": potenza_disp_kw,
+        "cod_progetto": cod_progetto,
         "n_doc": n_doc,
         "rev": revisione,
         "impresa": impresa,
