@@ -1,39 +1,44 @@
 from __future__ import annotations
 
+"""PDF generator.
+
+Obiettivi della versione:
+- Cover page in stile "relazione tecnico-specialistica" (3 riquadri: titolo/indice/firma)
+- Pagina "Elenco delle revisioni" (subito dopo la cover)
+- Header/Footer e numerazione "Pagina X di Y" su tutte le pagine successive
+- Wording e struttura più legali/rigorosi (capitoli allineati al template: 1..6)
+- Contenuti condizionali: stampa solo sezioni significative
+
+Nota: la cover riprende l'impostazione a tre riquadri del PDF campione.
+"""
+
 from io import BytesIO
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from xml.sax.saxutils import escape
+
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    PageBreak,
+    Flowable,
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
 
 def _p(text: str, style):
     safe = escape(text or "").replace("\n", "<br/>")
     return Paragraph(safe, style)
 
-def _page_number(canvas, doc):
-    canvas.saveState()
-    canvas.setFont("Helvetica", 9)
-    canvas.drawRightString(200 * mm, 12 * mm, f"Pag. {doc.page}")
-    canvas.restoreState()
-
-def _kv_table(rows: List[list], col_widths):
-    tbl = Table(rows, colWidths=col_widths, hAlign="LEFT")
-    tbl.setStyle(TableStyle([
-        ("GRID",(0,0),(-1,-1),0.25,colors.grey),
-        ("BACKGROUND",(0,0),(-1,0),colors.whitesmoke),
-        ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
-        ("FONTSIZE",(0,0),(-1,-1),9),
-        ("VALIGN",(0,0),(-1,-1),"TOP"),
-        ("LEFTPADDING",(0,0),(-1,-1),4),
-        ("RIGHTPADDING",(0,0),(-1,-1),4),
-        ("TOPPADDING",(0,0),(-1,-1),3),
-        ("BOTTOMPADDING",(0,0),(-1,-1),3),
-    ]))
-    return tbl
 
 def _meaningful(value: Any) -> bool:
     if value is None:
@@ -42,9 +47,15 @@ def _meaningful(value: Any) -> bool:
     if not s:
         return False
     low = s.lower()
-    # parole/placeholder da non stampare
     bad = {
-        "non pertinente", "non applicabile", "n/a", "na", "—", "-", "nessuna", "nessuna / non applicabile"
+        "non pertinente",
+        "non applicabile",
+        "n/a",
+        "na",
+        "—",
+        "-",
+        "nessuna",
+        "nessuna / non applicabile",
     }
     if low in bad:
         return False
@@ -52,127 +63,434 @@ def _meaningful(value: Any) -> bool:
         return False
     return True
 
-def _append_if(story: List[Any], title: str, text: str, styles):
-    if _meaningful(text):
-        story.append(_p(title, styles["Heading3"]))
-        story.append(_p(text, styles["BodyText"]))
-        story.append(Spacer(1, 8))
+
+def _kv_table(rows: List[list], col_widths):
+    tbl = Table(rows, colWidths=col_widths, hAlign="LEFT")
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
+    return tbl
+
+
+def _first_nonempty_line(text: str) -> str:
+    for ln in (text or "").splitlines():
+        ln = ln.strip()
+        if ln:
+            return ln
+    return ""
+
+
+class _NumberedCanvas(canvas.Canvas):
+    """Canvas che consente 'Pagina X di Y'."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states: List[dict] = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        super().showPage()
+
+    def save(self):
+        page_count = len(self._saved_page_states) + 1
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self._draw_page_number(page_count)
+            super().showPage()
+        self._draw_page_number(page_count)
+        super().save()
+
+    def _draw_page_number(self, page_count: int):
+        self.saveState()
+        self.setFont("Helvetica", 9)
+        self.setFillColor(colors.grey)
+        self.drawRightString(200 * mm, 10 * mm, f"Pagina {self._pageNumber} di {page_count}")
+        self.setFillColor(colors.black)
+        self.restoreState()
+
+
+def _build_indice_items(_: Dict[str, Any]) -> List[str]:
+    # Struttura capitoli "editoriale" (come nel template campione)
+    return [
+        "CAPITOLO 1: Premessa",
+        "CAPITOLO 2: Riferimenti Legislativi e normativi",
+        "CAPITOLO 3: Criteri di progetto degli impianti",
+        "CAPITOLO 4: Soluzione progettuale adottata",
+        "CAPITOLO 5: Ulteriori indicazioni",
+        "CAPITOLO 6: Allegati",
+    ]
+
+
+class CoverPage(Flowable):
+    """Cover a riquadri (titolo / indice / firma)."""
+
+    def __init__(self, data: Dict[str, Any]):
+        super().__init__()
+        self.data = data
+
+    def wrap(self, availWidth, availHeight):
+        return availWidth, availHeight
+
+    def draw(self):
+        c = self.canv
+        width, height = A4
+
+        left = 20 * mm
+        right = 20 * mm
+        top = height - 22 * mm
+        bottom = 22 * mm
+        w = width - left - right
+
+        box1_h = 92 * mm
+        box2_h = 45 * mm
+        box3_h = (top - bottom) - box1_h - box2_h - 12 * mm
+
+        y1_top = top
+        y1_bot = y1_top - box1_h
+        y2_top = y1_bot - 6 * mm
+        y2_bot = y2_top - box2_h
+        y3_top = y2_bot - 6 * mm
+        y3_bot = bottom
+
+        c.setLineWidth(1)
+        c.rect(left, y1_bot, w, box1_h)
+        c.rect(left, y2_bot, w, box2_h)
+        c.rect(left, y3_bot, w, box3_h)
+
+        titolo_grande = (self.data.get("titolo_cover") or "RELAZIONE TECNICO-SPECIALISTICA").upper()
+        sottotitolo = self.data.get("sottotitolo_cover") or self.data.get("oggetto_intervento") or ""
+        committente = self.data.get("committente_nome") or ""
+        luogo = self.data.get("impianto_indirizzo") or ""
+
+        # Titolo grande (Times-Bold, centrato, spezzato su più righe)
+        c.setFont("Times-Bold", 20)
+        words = titolo_grande.split()
+        lines: List[str] = []
+        cur = ""
+        for w0 in words:
+            test = (cur + " " + w0).strip()
+            if len(test) > 42 and cur:
+                lines.append(cur)
+                cur = w0
+            else:
+                cur = test
+        if cur:
+            lines.append(cur)
+
+        y = y1_top - 12 * mm
+        for ln in lines[:6]:
+            c.drawCentredString(left + w / 2, y, ln)
+            y -= 9 * mm
+
+        c.setFont("Times-Roman", 14)
+        y -= 2 * mm
+        if _meaningful(sottotitolo):
+            c.drawCentredString(left + w / 2, y, str(sottotitolo))
+            y -= 8 * mm
+
+        c.setFont("Times-Roman", 13)
+        c.drawCentredString(left + w / 2, y, "IMPIANTO ELETTRICO")
+        y -= 6 * mm
+        c.setFont("Times-Roman", 12)
+        c.drawCentredString(left + w / 2, y, "RELAZIONE TECNICO-SPECIALISTICA")
+        y -= 10 * mm
+
+        c.setFont("Times-Roman", 12)
+        if _meaningful(committente):
+            c.drawCentredString(left + w / 2, y, f"Committente: {committente}")
+            y -= 6 * mm
+        if _meaningful(luogo):
+            luogo_txt = str(luogo)
+            max_len = 70
+            luogo_lines = [luogo_txt[i : i + max_len] for i in range(0, len(luogo_txt), max_len)]
+            for ll in luogo_lines[:2]:
+                c.drawCentredString(left + w / 2, y, ll)
+                y -= 6 * mm
+
+        # Indice con checkbox
+        c.setFont("Times-Roman", 13)
+        idx = _build_indice_items(self.data)
+        x0 = left + 10 * mm
+        y = y2_top - 10 * mm
+        for it in idx:
+            c.rect(x0, y - 3 * mm, 3.5 * mm, 3.5 * mm)
+            c.drawString(x0 + 7 * mm, y - 2 * mm, it)
+            y -= 7.5 * mm
+
+        # Firma
+        progettista = (
+            self.data.get("progettista_nome")
+            or _first_nonempty_line(self.data.get("progettista_blocco", ""))
+            or self.data.get("firma")
+            or ""
+        )
+        c.setFont("Times-Roman", 14)
+        c.drawCentredString(left + w / 2, y3_top - 18 * mm, "Il progettista:")
+        c.drawCentredString(left + w / 2, y3_top - 28 * mm, str(progettista))
+
+        # Timbro/firma: se fornito PNG, lo disegna; altrimenti placeholder
+        stamp_w = 70 * mm
+        stamp_h = 45 * mm
+        sx = left + (w - stamp_w) / 2
+        sy = y3_bot + 16 * mm
+        png_bytes = self.data.get("timbro_png")
+        if png_bytes:
+            try:
+                img = ImageReader(BytesIO(png_bytes))
+                c.drawImage(img, sx, sy, width=stamp_w, height=stamp_h, preserveAspectRatio=True, mask='auto')
+            except Exception:
+                png_bytes = None
+        if not png_bytes:
+            c.setLineWidth(0.5)
+            c.rect(sx, sy, stamp_w, stamp_h)
+            c.setFont("Helvetica-Oblique", 9)
+            c.setFillColor(colors.grey)
+            c.drawCentredString(left + w / 2, sy + stamp_h / 2, "Spazio firma/timbro")
+            c.setFillColor(colors.black)
+
+        # Metadati (riga bassa)
+        cod = self.data.get("cod_progetto", "")
+        rev = self.data.get("rev", "")
+        data_doc = self.data.get("data", "")
+        meta = " · ".join(
+            [
+                x
+                for x in [
+                    f"Cod. {cod}" if _meaningful(cod) else "",
+                    f"Rev. {rev}" if _meaningful(rev) else "",
+                    f"Data {data_doc}" if _meaningful(data_doc) else "",
+                ]
+                if x
+            ]
+        )
+        if meta:
+            c.setFont("Helvetica", 9)
+            c.setFillColor(colors.grey)
+            c.drawCentredString(left + w / 2, y3_bot + 8 * mm, meta)
+            c.setFillColor(colors.black)
+
+
+def _draw_header_footer(c: canvas.Canvas, doc, data: Dict[str, Any]):
+    """Header/Footer per pagine successive alla cover."""
+    width, height = A4
+    left = doc.leftMargin
+    right = width - doc.rightMargin
+
+    titolo = data.get("header_titolo") or "Relazione Tecnico-Specialistica"
+    cod = data.get("cod_progetto")
+    rev = data.get("rev")
+    data_doc = data.get("data")
+
+    c.saveState()
+    c.setFont("Helvetica", 9)
+    c.setFillColor(colors.grey)
+
+    header = titolo
+    if _meaningful(cod):
+        header = f"{titolo} · Cod. {cod}"
+    c.drawString(left, height - 12 * mm, header)
+
+    c.setStrokeColor(colors.lightgrey)
+    c.setLineWidth(0.3)
+    c.line(left, 15 * mm, right, 15 * mm)
+
+    meta = " · ".join(
+        [x for x in [f"Rev. {rev}" if _meaningful(rev) else "", f"Data {data_doc}" if _meaningful(data_doc) else ""] if x]
+    )
+    if meta:
+        c.drawString(left, 10 * mm, meta)
+
+    c.restoreState()
+
+
+def _revision_table(data: Dict[str, Any], styles) -> Optional[Table]:
+    revs = data.get("revisioni") or []
+    if not revs:
+        # default minimo
+        rev = data.get("rev", "00")
+        dt = data.get("data", "")
+        revs = [{"Rev": str(rev), "Data": str(dt), "Descrizione": "Emissione documento"}]
+
+    th = ParagraphStyle("rth", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=9, leading=10)
+    tc = ParagraphStyle("rtc", parent=styles["Normal"], fontName="Helvetica", fontSize=9, leading=10)
+
+    tdata = [[_p("Rev.", th), _p("Data", th), _p("Descrizione", th)]]
+    for r in revs:
+        tdata.append([
+            _p(str(r.get("Rev", "")), tc),
+            _p(str(r.get("Data", "")), tc),
+            _p(str(r.get("Descrizione", "")), tc),
+        ])
+
+    tbl = Table(tdata, colWidths=[18 * mm, 30 * mm, 126 * mm], hAlign="LEFT", repeatRows=1)
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
+    return tbl
+
 
 def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
-    """Genera PDF allineato al template v7 con contenuti condizionali (stampa solo ciò che serve)."""
     buf = BytesIO()
     styles = getSampleStyleSheet()
 
     th = ParagraphStyle("th", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
     tc = ParagraphStyle("tc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
 
+    h1 = ParagraphStyle("H1", parent=styles["Heading1"], spaceBefore=6, spaceAfter=8)
+    h2 = ParagraphStyle("H2", parent=styles["Heading2"], spaceBefore=8, spaceAfter=6)
+    h3 = ParagraphStyle("H3", parent=styles["Heading3"], spaceBefore=6, spaceAfter=4)
+
     doc = SimpleDocTemplate(
         buf,
         pagesize=A4,
         leftMargin=18 * mm,
         rightMargin=18 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
-        title="Relazione Tecnica - Impianto Elettrico (DiCo)",
+        topMargin=20 * mm,
+        bottomMargin=18 * mm,
+        title="Relazione Tecnico-Specialistica",
     )
 
     story: List[Any] = []
-    story.append(_p("RELAZIONE TECNICA - IMPIANTO ELETTRICO (DiCo)", styles["Title"]))
-    story.append(_p("Ai sensi del D.M. 37/2008 e norme tecniche applicabili", styles["BodyText"]))
-    story.append(Spacer(1, 10))
 
+    # 1) COVER
+    story.append(CoverPage(data))
+    story.append(PageBreak())
+
+    # 2) REVISIONI
+    story.append(_p("ELENCO DELLE REVISIONI", h1))
+    rt = _revision_table(data, styles)
+    if rt:
+        story.append(rt)
+        story.append(Spacer(1, 10))
+
+    # 2.1) Dati identificativi documento
     ident = [
         ["DATI IDENTIFICATIVI DOCUMENTO", ""],
-        ["Committente", data.get("committente_nome","")],
-        ["Luogo di installazione", data.get("impianto_indirizzo","")],
-        ["Oggetto intervento", data.get("oggetto_intervento","")],
-        ["Tipologia impianto", data.get("tipologia","")],
-        ["Sistema di distribuzione", data.get("sistema","")],
-        ["Tensione/Frequenza", data.get("tensione","")],
-        ["Potenza impegnata / disponibile", data.get("potenza_disp","")],
-        ["N. documento", data.get("n_doc","")],
-        ["Revisione", data.get("rev","")],
-        ["Data", data.get("data","")],
+        ["Committente", data.get("committente_nome", "")],
+        ["Luogo di installazione", data.get("impianto_indirizzo", "")],
+        ["Oggetto intervento", data.get("oggetto_intervento", "")],
+        ["Tipologia impianto", data.get("tipologia", "")],
+        ["Sistema di distribuzione", data.get("sistema", "")],
+        ["Tensione/Frequenza", data.get("tensione", "")],
+        ["Potenza impegnata / disponibile", data.get("potenza_disp", "")],
+        ["Cod. progetto", data.get("cod_progetto", "")],
+        ["N. documento", data.get("n_doc", "")],
+        ["Revisione", data.get("rev", "")],
+        ["Data", data.get("data", "")],
     ]
-    story.append(_kv_table(ident, [55*mm, 119*mm]))
+    story.append(_kv_table(ident, [55 * mm, 119 * mm]))
     story.append(Spacer(1, 10))
 
-    story.append(_p("Progettista / Tecnico redattore (se applicabile)", styles["Heading2"]))
-    story.append(_p(data.get("progettista_blocco",""), styles["BodyText"]))
-    story.append(Spacer(1, 8))
+    # 2.2) Dati progettista (se forniti)
+    progettista_blocco = data.get("progettista_blocco", "")
+    if _meaningful(progettista_blocco):
+        story.append(_p("TECNICO PROGETTISTA / REDATTORE", h2))
+        story.append(_p(progettista_blocco, styles["BodyText"]))
+        story.append(Spacer(1, 10))
 
-    story.append(_p("CAPITOLO 1 - PREMESSA", styles["Heading2"]))
-    story.append(_p(data.get("premessa",""), styles["BodyText"]))
-    story.append(Spacer(1, 8))
+    # Nota calcoli
+    disclaimer = data.get(
+        "disclaimer_calcoli",
+        "I calcoli e le verifiche riportate sono di sintesi e hanno finalità di supporto documentale. "
+        "Non sostituiscono un progetto esecutivo completo né le verifiche prescrittive previste dalle norme applicabili.",
+    )
+    if _meaningful(disclaimer):
+        story.append(_p("NOTA", h2))
+        story.append(_p(disclaimer, styles["BodyText"]))
 
-    story.append(_p("CAPITOLO 2 - RIFERIMENTI LEGISLATIVI E NORMATIVI", styles["Heading2"]))
-    story.append(_p(data.get("norme",""), styles["BodyText"]))
-    story.append(Spacer(1, 8))
+    story.append(PageBreak())
 
-    # CAPITOLO 3 - Criterio di progetto (esteso) se presente
-    criterio = data.get("criterio_progetto","")
+    # === CAPITOLI 1..6 ===
+    story.append(_p("CAPITOLO 1 - PREMESSA", h2))
+    story.append(_p(data.get("premessa", ""), styles["BodyText"]))
+    story.append(Spacer(1, 10))
+
+    story.append(_p("CAPITOLO 2 - RIFERIMENTI LEGISLATIVI E NORMATIVI", h2))
+    story.append(_p(data.get("norme", ""), styles["BodyText"]))
+    story.append(Spacer(1, 10))
+
+    criterio = data.get("criterio_progetto", "")
     if _meaningful(criterio):
-        story.append(_p("CAPITOLO 3 - CRITERIO DI PROGETTO DEGLI IMPIANTI", styles["Heading2"]))
+        story.append(_p("CAPITOLO 3 - CRITERI DI PROGETTO DEGLI IMPIANTI", h2))
         story.append(_p(criterio, styles["BodyText"]))
         story.append(Spacer(1, 10))
 
+    story.append(_p("CAPITOLO 4 - SOLUZIONE PROGETTUALE ADOTTATA", h2))
 
-    story.append(_p("CAPITOLO 4 - DATI GENERALI E SOGGETTI COINVOLTI (SINTESI)", styles["Heading2"]))
-    impresa = data.get("impresa","")
-    if _meaningful(impresa):
-        story.append(_p(f"Impresa installatrice: {impresa}", styles["BodyText"]))
-    story.append(_p(data.get("dati_tecnici",""), styles["BodyText"]))
-    story.append(Spacer(1, 8))
+    dati_tecnici = data.get("dati_tecnici", "")
+    if _meaningful(dati_tecnici):
+        story.append(_p("4.1 Dati tecnici di base", h3))
+        story.append(_p(dati_tecnici, styles["BodyText"]))
+        story.append(Spacer(1, 8))
 
-    story.append(_p("CAPITOLO 5 - DESCRIZIONE DELL’IMPIANTO E OPERE ESEGUITE", styles["Heading2"]))
-    story.append(_p(data.get("descrizione_impianto",""), styles["BodyText"]))
-    story.append(Spacer(1, 8))
+    descr = data.get("descrizione_impianto", "")
+    if _meaningful(descr):
+        story.append(_p("4.2 Descrizione impianto e opere", h3))
+        story.append(_p(descr, styles["BodyText"]))
+        story.append(Spacer(1, 8))
 
-    # Confini intervento solo se valorizzati
-    conf = data.get("confini","")
+    conf = data.get("confini", "")
     if _meaningful(conf):
-        story.append(_p("5.1.4 Confini dell’intervento e interfacce", styles["Heading3"]))
+        story.append(_p("4.3 Confini dell’intervento e interfacce", h3))
         story.append(_p(conf, styles["BodyText"]))
         story.append(Spacer(1, 10))
 
-    # Quadri solo se presenti
     quadri = data.get("quadri", [])
     if quadri:
-        story.append(_p("5.2 Quadri elettrici e distribuzione", styles["Heading3"]))
-        story.append(_p("Tabella quadri (compilazione sintetica):", styles["BodyText"]))
-        tdata = [
-            [_p("Quadro", th), _p("Ubicazione", th), _p("IP", th),
-             _p("Interruttore generale<br/>(tipo/In)", th),
-             _p("Differenziale generale<br/>(tipo/Idn)", th)]
-        ]
+        story.append(_p("4.4 Quadri elettrici e distribuzione (sintesi)", h3))
+        tdata = [[
+            _p("Quadro", th),
+            _p("Ubicazione", th),
+            _p("IP", th),
+            _p("Interruttore generale<br/>(tipo/In)", th),
+            _p("Differenziale generale<br/>(tipo/Idn)", th),
+        ]]
         for q in quadri:
             tdata.append([
-                _p(str(q.get("Quadro","")), tc),
-                _p(str(q.get("Ubicazione","")), tc),
-                _p(str(q.get("IP","")), tc),
-                _p(str(q.get("Generale","")), tc),
-                _p(str(q.get("Diff","")), tc),
+                _p(str(q.get("Quadro", "")), tc),
+                _p(str(q.get("Ubicazione", "")), tc),
+                _p(str(q.get("IP", "")), tc),
+                _p(str(q.get("Generale", "")), tc),
+                _p(str(q.get("Diff", "")), tc),
             ])
-        tbl = Table(tdata, colWidths=[16*mm, 40*mm, 12*mm, 52*mm, 54*mm], repeatRows=1, hAlign="LEFT")
+        tbl = Table(tdata, colWidths=[16 * mm, 40 * mm, 12 * mm, 52 * mm, 54 * mm], repeatRows=1, hAlign="LEFT")
         tbl.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,0),colors.whitesmoke),
-            ("GRID",(0,0),(-1,-1),0.25,colors.grey),
-            ("VALIGN",(0,0),(-1,-1),"TOP"),
-            ("LEFTPADDING",(0,0),(-1,-1),3),
-            ("RIGHTPADDING",(0,0),(-1,-1),3),
-            ("TOPPADDING",(0,0),(-1,-1),2),
-            ("BOTTOMPADDING",(0,0),(-1,-1),2),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ]))
         story.append(tbl)
         story.append(Spacer(1, 10))
 
-    # Linee solo se presenti
     linee = data.get("linee", [])
     if linee:
-        story.append(_p("CAPITOLO 6 - CRITERI DI PROGETTO E DIMENSIONAMENTO (SINTESI)", styles["Heading2"]))
-        story.append(_p("6.2 Elenco circuiti, cavi e protezioni", styles["Heading3"]))
-        story.append(_p("Di seguito si riporta l’elenco sintetico dei circuiti principali:", styles["BodyText"]))
-
+        story.append(_p("4.5 Elenco circuiti, cavi e protezioni (sintesi)", h3))
         tdata = [[
             _p("Circuito<br/>/Linea", th),
             _p("Destinazione<br/>/Utilizzo", th),
@@ -184,60 +502,62 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
             _p("Esito", th),
         ]]
         for ln in linee:
-            posa = (ln.get("Posa","") or "").strip()
-            ll = ln.get("L_m","")
+            posa = (ln.get("Posa", "") or "").strip()
+            ll = ln.get("L_m", "")
             posa_len = f"{posa}\n{ll}" if _meaningful(posa) else f"{ll}"
             tdata.append([
-                _p(str(ln.get("Linea","")), tc),
-                _p(str(ln.get("Uso","")), tc),
+                _p(str(ln.get("Linea", "")), tc),
+                _p(str(ln.get("Uso", "")), tc),
                 _p(str(posa_len), tc),
-                _p(str(ln.get("Cavo","")), tc),
-                _p(str(ln.get("Protezione","")), tc),
-                _p(str(ln.get("Diff","")), tc),
-                _p(str(ln.get("DV_perc","")), tc),
-                _p(str(ln.get("Esito","")), tc),
+                _p(str(ln.get("Cavo", "")), tc),
+                _p(str(ln.get("Protezione", "")), tc),
+                _p(str(ln.get("Diff", "")), tc),
+                _p(str(ln.get("DV_perc", "")), tc),
+                _p(str(ln.get("Esito", "")), tc),
             ])
-        colw = [16*mm, 30*mm, 24*mm, 32*mm, 26*mm, 26*mm, 10*mm, 10*mm]
+        colw = [16 * mm, 30 * mm, 24 * mm, 32 * mm, 26 * mm, 26 * mm, 10 * mm, 10 * mm]
         tbl = Table(tdata, colWidths=colw, repeatRows=1, hAlign="LEFT")
         tbl.setStyle(TableStyle([
-            ("BACKGROUND",(0,0),(-1,0),colors.whitesmoke),
-            ("GRID",(0,0),(-1,-1),0.25,colors.grey),
-            ("VALIGN",(0,0),(-1,-1),"TOP"),
-            ("LEFTPADDING",(0,0),(-1,-1),3),
-            ("RIGHTPADDING",(0,0),(-1,-1),3),
-            ("TOPPADDING",(0,0),(-1,-1),2),
-            ("BOTTOMPADDING",(0,0),(-1,-1),2),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
         ]))
         story.append(tbl)
         story.append(Spacer(1, 10))
 
-    # Sicurezza: stampa solo se meaningful (di base lo è)
-    story.append(_p("5.4 Protezione contro i contatti diretti e indiretti", styles["Heading3"]))
-    story.append(_p(data.get("sicurezza",""), styles["BodyText"]))
-    story.append(Spacer(1, 10))
+    story.append(_p("CAPITOLO 5 - ULTERIORI INDICAZIONI", h2))
 
-    # Verifiche: se tutto è vuoto non stampare (ma di solito serve)
-    ver = data.get("verifiche","")
+    sic = data.get("sicurezza", "")
+    if _meaningful(sic):
+        story.append(_p("5.1 Protezione contro i contatti diretti e indiretti", h3))
+        story.append(_p(sic, styles["BodyText"]))
+        story.append(Spacer(1, 8))
+
+    ver = data.get("verifiche", "")
     if _meaningful(ver):
-        story.append(_p("CAPITOLO 7 - VERIFICHE, PROVE E COLLAUDI", styles["Heading2"]))
+        story.append(_p("5.2 Verifiche, prove e collaudi", h3))
         story.append(_p(ver, styles["BodyText"]))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
-    man = data.get("manutenzione","")
+    man = data.get("manutenzione", "")
     if _meaningful(man):
-        story.append(_p("CAPITOLO 8 - ESERCIZIO, MANUTENZIONE E AVVERTENZE", styles["Heading2"]))
+        story.append(_p("5.3 Esercizio, manutenzione e avvertenze", h3))
         story.append(_p(man, styles["BodyText"]))
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
-    allg = data.get("allegati","")
+    allg = data.get("allegati", "")
     if _meaningful(allg):
-        story.append(_p("CAPITOLO 8 - ALLEGATI", styles["Heading2"]))
+        story.append(_p("CAPITOLO 6 - ALLEGATI", h2))
         story.append(_p(allg, styles["BodyText"]))
 
-    # Firma: stampa solo se valorizzata
-    luogo_f = data.get("luogo_firma","")
-    data_f = data.get("data_firma","")
-    firma = data.get("firma","")
+    # Firma finale (facoltativa)
+    luogo_f = data.get("luogo_firma", "")
+    data_f = data.get("data_firma", "")
+    firma = data.get("firma", "")
     if _meaningful(luogo_f) or _meaningful(data_f) or _meaningful(firma):
         story.append(Spacer(1, 14))
         if _meaningful(luogo_f) or _meaningful(data_f):
@@ -246,5 +566,10 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         if _meaningful(firma):
             story.append(_p(f"Firma e timbro: {firma}", styles["BodyText"]))
 
-    doc.build(story, onFirstPage=_page_number, onLaterPages=_page_number)
+    doc.build(
+        story,
+        onFirstPage=lambda c, d: None,
+        onLaterPages=lambda c, d: _draw_header_footer(c, d, data),
+        canvasmaker=_NumberedCanvas,
+    )
     return buf.getvalue()

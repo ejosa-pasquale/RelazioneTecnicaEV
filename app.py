@@ -24,7 +24,7 @@ with st.sidebar:
     dv_lim = st.number_input("Caduta di tensione max (%)", min_value=1.0, max_value=10.0, value=4.0, step=0.5)
     ul_tt = st.number_input("UL sistema TT (V) – criterio Ra·Idn ≤ UL", min_value=25.0, max_value=100.0, value=50.0, step=5.0)
     st.divider()
-    st.markdown("**Nota**: calcoli di sintesi (supporto alla DiCo). Per casi complessi usare calcolo/progetto dedicato.")
+    st.markdown("**Nota**: calcoli di sintesi (supporto alla DiCo). La nota viene riportata anche nel PDF. Per casi complessi usare calcolo/progetto dedicato.")
 
 # =========================
 # DATI IDENTIFICATIVI
@@ -43,9 +43,22 @@ with c2:
 with c3:
     tensione = st.text_input("Tensione/Frequenza", "230/400 V - 50 Hz")
     potenza_disp_kw = st.text_input("Potenza impegnata / disponibile", "XXXX (Inserire)")
+    cod_progetto = st.text_input("Cod. progetto", "XXXX (Inserire)")
     n_doc = st.text_input("N. documento", "XXXX (Inserire)")
     revisione = st.text_input("Revisione", "00")
     data_doc = st.date_input("Data", value=date.today())
+
+st.subheader("Revisioni documento")
+rev_df = pd.DataFrame([
+    {"Rev": str(revisione), "Data": data_doc.strftime('%d/%m/%Y'), "Descrizione": "Emissione documento"},
+])
+rev_df = st.data_editor(rev_df, num_rows="dynamic", use_container_width=True, key="revisioni")
+
+# Carica opzionale immagine timbro/firma per la cover
+timbro_file = st.file_uploader("Timbro/Firma (PNG) - opzionale", type=["png"], accept_multiple_files=False)
+timbro_bytes = timbro_file.getvalue() if timbro_file else None
+
+st.divider()
 
 st.divider()
 
@@ -64,8 +77,24 @@ with c1:
     impresa_resp = st.text_input("Responsabile tecnico", "XXXX (Inserire)")
     impresa_cont = st.text_input("Recapiti", "XXXX (Inserire)")
 with c2:
-    st.markdown("**Progettista / Tecnico redattore (se applicabile)**")
-    st.code(PROGETTISTA_BLOCCO)
+    st.markdown("**Progettista / Tecnico redattore**")
+p_nome = st.text_input("Nominativo", "Ing. Pasquale Senese")
+p_titolo = st.text_input("Titolo/Qualifica", "Ingegnere")
+p_albo = st.text_input("Albo / Collegio", "Ordine degli Ingegneri")
+p_iscr = st.text_input("Iscrizione (n./provincia)", "XXXX (Inserire)")
+p_cf = st.text_input("Codice Fiscale", "XXXX (Inserire)")
+p_piva = st.text_input("P.IVA", "XXXX (Inserire)")
+p_studio = st.text_input("Studio/Indirizzo", "XXXX (Inserire)")
+p_email = st.text_input("Email", "XXXX (Inserire)")
+p_pec = st.text_input("PEC", "XXXX (Inserire)")
+p_tel = st.text_input("Telefono", "XXXX (Inserire)")
+progettista_blocco = f"""{p_nome}
+{p_titolo}
+{p_albo} - {p_iscr}
+C.F.: {p_cf}  P.IVA: {p_piva}
+Studio: {p_studio}
+Email: {p_email}  PEC: {p_pec}  Tel.: {p_tel}"""
+
 
 st.divider()
 
@@ -290,16 +319,22 @@ amb_txt = ", ".join([a for a in ambienti if a != "Altro"])
 if "Altro" in ambienti:
     amb_txt += f", Altro: {amb_altro}"
 
-premessa = f"""La presente relazione tecnica è redatta a supporto della Dichiarazione di Conformità (DiCo) dell’impianto elettrico realizzato presso: {luogo}, per conto della committenza: {committente}. Il documento descrive le scelte progettuali e realizzative, i criteri di dimensionamento e le verifiche previste/effettuate, in conformità alle normative vigenti e alle regole dell’arte.
+premessa = f"""La presente **Relazione Tecnico‑Specialistica** è redatta nell’ambito dell’incarico conferito dalla Committenza "{committente}" e riguarda l’intervento "{oggetto}" presso "{luogo}".
 
-La presente Relazione Tecnica è redatta a supporto della Dichiarazione di Conformità (DiCo) rilasciata dall’Impresa installatrice ai sensi del D.M. 37/2008. La Relazione descrive l’impianto oggetto d’intervento e le verifiche previste/effettuate, non sostituisce la DiCo né i relativi allegati obbligatori.
-Il Progettista/Tecnico redattore assume responsabilità esclusivamente nei limiti dell’incarico formalmente conferito (progettazione e/o verifica/collaudo, ove previsto), sulla base dei rilievi in sito e della documentazione resa disponibile dalla Committenza e/o dall’Impresa installatrice. Restano in capo all’Impresa l’esecuzione a regola d’arte delle opere, l’eventuale redazione/aggiornamento degli elaborati “as built”, l’esecuzione delle prove e la completezza/validità della documentazione di conformità.
-Assunzioni e fonti
-Le informazioni relative a fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da Committente e/o Impresa installatrice e/o rilevate in sito. In assenza di diversa indicazione scritta, si assume l’assenza di varianti rispetto a quanto riportato nella presente Relazione. Eventuali informazioni non disponibili o non verificabili strumentalmente sono indicate come tali.
+**Finalità e perimetro**
+Il documento ha lo scopo di:
+• descrivere l’impianto e le opere eseguite/da eseguire, con indicazione dei confini dell’intervento;
+• richiamare i riferimenti legislativi e normativi applicabili;
+• esplicitare i criteri di progettazione e le verifiche di coordinamento essenziali (correnti, cadute di tensione, protezioni), in coerenza con la regola dell’arte.
 
-L’intervento riguarda: {oggetto}
+**Valenza documentale**
+La presente Relazione costituisce documento tecnico di progetto e di supporto alla documentazione di conformità ai sensi del D.M. 37/2008; non sostituisce la Dichiarazione di Conformità (DiCo) né i relativi allegati obbligatori, che restano di competenza dell’Impresa installatrice.
 
-Assunzioni e fonti: le informazioni relative a fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da: {fonte_dati} e/o rilevate e/o confermate dal commitente o ditta incaricata in data {data_doc.strftime('%d/%m/%Y')}. Eventuali parti preesistenti non oggetto di intervento sono indicate nel paragrafo “Confini dell’intervento”.
+**Responsabilità e dati di ingresso**
+Le informazioni relative alla fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da "{fonte_dati}" e/o rilevate in sito e/o confermate in data {data_doc.strftime('%d/%m/%Y')}. Eventuali porzioni preesistenti non oggetto di intervento e le interfacce con impianti/parti terze sono indicate nel paragrafo "Confini dell’intervento".
+
+**Requisiti materiali e consegna**
+Materiali e componenti devono essere conformi alle norme applicabili, provvisti di marcatura CE e, ove disponibile, marchio di conformità volontario (es. IMQ) o equivalente. Alla consegna l’impianto deve risultare conforme alla regola dell’arte e alle prescrizioni eventualmente impartite da Enti/Autorità competenti.
 """
 
 norme = f"""Si riportano i principali riferimenti legislativi e normativi applicabili (elenco non esaustivo):
@@ -370,7 +405,17 @@ verifiche = """Ad ultimazione dei lavori, l’impianto è sottoposto alle verifi
 for _, r in ver_df.iterrows():
     verifiche += f"• {r.get('Prova / Verifica','')}: {r.get('Esito','')} – Strumento: {r.get('Strumento','')} – Note: {r.get('Note','')}\n"
 
-manutenzione = """L’esercizio e la manutenzione devono essere eseguiti da personale qualificato, secondo quanto indicato dai costruttori e dalla normativa tecnica (CEI 0-10). Si raccomanda l’esecuzione di controlli periodici e la registrazione degli interventi."""
+manutenzione = """Le attività di esercizio e manutenzione devono essere svolte da personale qualificato e autorizzato, in sicurezza e nel rispetto delle istruzioni dei costruttori e delle norme tecniche applicabili (es. CEI 0-10 / CEI 11-27, ove pertinenti).
+
+**Piano di manutenzione (minimo consigliato)**
+• Quadri elettrici: ispezione visiva, pulizia, verifica serraggi morsetti, integrità targhe/etichette e dispositivi di protezione;
+• Dispositivi differenziali: prova periodica con tasto "T" e verifiche strumentali (Idn/tempo) secondo periodicità e criticità del sito;
+• Conduttori e condutture: verifica integrità isolamento, fissaggi, protezioni meccaniche e segregazioni;
+• Collegamenti equipotenziali e PE: controllo continuità e integrità;
+• Comandi/emergenze (se presenti): prova funzionale e ripristino, verifica segnalazioni e cartellonistica;
+• Apparecchiature specifiche (es. wallbox/utenze dedicate): ispezione cavi e connettori, prova funzionale e aggiornamenti firmware se previsti dal costruttore.
+
+È raccomandata la tenuta di un **registro manutenzione** con data, attività eseguite, esito e nominativo dell’operatore."""
 
 allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati. 
 
@@ -522,7 +567,8 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "committente_nome": committente,
         "impianto_indirizzo": luogo,
         "data": data_doc.strftime("%d/%m/%Y"),
-        "progettista_blocco": PROGETTISTA_BLOCCO,
+        "header_titolo": "Relazione Tecnica - Impianto Elettrico (DiCo)",
+        "progettista_blocco": progettista_blocco,
         "premessa": premessa,
         "norme": norme,
         "criterio_progetto": criterio_testo,
@@ -535,12 +581,16 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "verifiche": verifiche,
         "manutenzione": manutenzione,
         "allegati": allegati,
+        "disclaimer_calcoli": "Calcoli e verifiche riportati sono di sintesi e a supporto documentale. Non sostituiscono un progetto esecutivo completo né le verifiche previste dalle norme applicabili.",
+        "titolo_cover": "RELAZIONE TECNICA - IMPIANTO ELETTRICO (DiCo)",
+        "sottotitolo_cover": oggetto,
         "firma": firmatario,
         "oggetto_intervento": oggetto,
         "tipologia": tipologia,
         "sistema": sistema,
         "tensione": tensione,
         "potenza_disp": potenza_disp_kw,
+        "cod_progetto": cod_progetto,
         "n_doc": n_doc,
         "rev": revisione,
         "impresa": impresa,
