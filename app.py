@@ -379,8 +379,6 @@ allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati.
 - Verbali e report delle misure e prove strumentali
 - Schede tecniche principali componenti (quadri, interruttori, SPD, ecc.): Se disponibile.
 - Dichiarazioni/Marcature CE (ed eventuale IMQ) dei materiali: Se disponibile.
-- Documentazione impianto di terra (schemi, misure, foto morsetti): Se pertinente.
-- Documentazione SPD / LPS (se presenti): Se pertinente.
 - Report fotografico essenziale (quadri, targhette, collegamenti di terra, punti significativi): Consigliato.
 """
 
