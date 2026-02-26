@@ -81,23 +81,18 @@ with c1:
     impresa_cont = st.text_input("Recapiti", "XXXX (Inserire)")
 with c2:
     st.markdown("**Progettista / Tecnico redattore**")
-p_nome = st.text_input("Nominativo", "Ing. Pasquale Senese")
-p_titolo = st.text_input("Titolo/Qualifica", "Ingegnere")
-p_albo = st.text_input("Albo / Collegio", "Ordine degli Ingegneri")
-p_iscr = st.text_input("Iscrizione (n./provincia)", "XXXX (Inserire)")
-p_cf = st.text_input("Codice Fiscale", "XXXX (Inserire)")
-p_piva = st.text_input("P.IVA", "XXXX (Inserire)")
-p_studio = st.text_input("Studio/Indirizzo", "XXXX (Inserire)")
-p_email = st.text_input("Email", "XXXX (Inserire)")
-p_pec = st.text_input("PEC", "XXXX (Inserire)")
-p_tel = st.text_input("Telefono", "XXXX (Inserire)")
-progettista_blocco = f"""{p_nome}
-{p_titolo}
-{p_albo} - {p_iscr}
-C.F.: {p_cf}  P.IVA: {p_piva}
-Studio: {p_studio}
-Email: {p_email}  PEC: {p_pec}  Tel.: {p_tel}"""
+    progettista_blocco = st.text_area(
+        "Dati progettista (blocco)",
+        value=(
+            "Ing. Pasquale Senese\n"
+            "Via Francesco Soave 30 - 20135 Milano (MI) - Cell: 340 5731381\n"
+            "Email: pasquale.senese@ingpec.eu  P.IVA: 14572980960"
+        ),
+        height=100,
+    )
 
+# Deriva il nominativo (prima riga) per cover/title-block
+progettista_nome = (progettista_blocco.strip().splitlines()[0].strip() if progettista_blocco.strip() else "")
 
 st.divider()
 
@@ -322,21 +317,21 @@ amb_txt = ", ".join([a for a in ambienti if a != "Altro"])
 if "Altro" in ambienti:
     amb_txt += f", Altro: {amb_altro}"
 
-premessa = f"""La presente **Relazione Tecnico‑Specialistica** è redatta nell’ambito dell’incarico conferito dalla Committenza "{committente}" e riguarda l’intervento "{oggetto}" presso "{luogo}".
+premessa = f"""La presente Relazione Tecnico‑Specialistica è redatta nell’ambito dell’incarico conferito dalla Committenza "{committente}" e riguarda l’intervento "{oggetto}" presso "{luogo}".
 
-**Finalità e perimetro**
+FINALITÀ E PERIMETRO
 Il documento ha lo scopo di:
 • descrivere l’impianto e le opere eseguite/da eseguire, con indicazione dei confini dell’intervento;
 • richiamare i riferimenti legislativi e normativi applicabili;
 • esplicitare i criteri di progettazione e le verifiche di coordinamento essenziali (correnti, cadute di tensione, protezioni), in coerenza con la regola dell’arte.
 
-**Valenza documentale**
+VALENZA DOCUMENTALE
 La presente Relazione costituisce documento tecnico di progetto e di supporto alla documentazione di conformità ai sensi del D.M. 37/2008; non sostituisce la Dichiarazione di Conformità (DiCo) né i relativi allegati obbligatori, che restano di competenza dell’Impresa installatrice.
 
-**Responsabilità e dati di ingresso**
+RESPONSABILITÀ E DATI DI INGRESSO
 Le informazioni relative alla fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da "{fonte_dati}" e/o rilevate in sito e/o confermate in data {data_doc.strftime('%d/%m/%Y')}. Eventuali porzioni preesistenti non oggetto di intervento e le interfacce con impianti/parti terze sono indicate nel paragrafo "Confini dell’intervento".
 
-**Requisiti materiali e consegna**
+REQUISITI MATERIALI E CONSEGNA
 Materiali e componenti devono essere conformi alle norme applicabili, provvisti di marcatura CE e, ove disponibile, marchio di conformità volontario (es. IMQ) o equivalente. Alla consegna l’impianto deve risultare conforme alla regola dell’arte e alle prescrizioni eventualmente impartite da Enti/Autorità competenti.
 """
 
@@ -410,7 +405,7 @@ for _, r in ver_df.iterrows():
 
 manutenzione = """Le attività di esercizio e manutenzione devono essere svolte da personale qualificato e autorizzato, in sicurezza e nel rispetto delle istruzioni dei costruttori e delle norme tecniche applicabili (es. CEI 0-10 / CEI 11-27, ove pertinenti).
 
-**Piano di manutenzione (minimo consigliato)**
+PIANO DI MANUTENZIONE (minimo consigliato)
 • Quadri elettrici: ispezione visiva, pulizia, verifica serraggi morsetti, integrità targhe/etichette e dispositivi di protezione;
 • Dispositivi differenziali: prova periodica con tasto "T" e verifiche strumentali (Idn/tempo) secondo periodicità e criticità del sito;
 • Conduttori e condutture: verifica integrità isolamento, fissaggi, protezioni meccaniche e segregazioni;
@@ -418,7 +413,7 @@ manutenzione = """Le attività di esercizio e manutenzione devono essere svolte 
 • Comandi/emergenze (se presenti): prova funzionale e ripristino, verifica segnalazioni e cartellonistica;
 • Apparecchiature specifiche (es. wallbox/utenze dedicate): ispezione cavi e connettori, prova funzionale e aggiornamenti firmware se previsti dal costruttore.
 
-È raccomandata la tenuta di un **registro manutenzione** con data, attività eseguite, esito e nominativo dell’operatore."""
+È raccomandata la tenuta di un registro manutenzione con data, attività eseguite, esito e nominativo dell’operatore."""
 
 allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati. 
 
@@ -573,6 +568,7 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "data_documento": data_doc.strftime("%d/%m/%Y"),
         "header_titolo": "Relazione Tecnica - Impianto Elettrico (DiCo)",
         "progettista_blocco": progettista_blocco,
+        "progettista_nome": progettista_nome,
         "premessa": premessa,
         "norme": norme,
         "criterio_progetto": criterio_testo,

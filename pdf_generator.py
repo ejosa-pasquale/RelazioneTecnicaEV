@@ -160,7 +160,16 @@ class EngineeringCoverPage(Flowable):
 
     def draw(self):
         c = self.canv
+        # Nota: questo Flowable viene disegnato all'interno del frame (origine = margini).
+        # Per ottenere una cover "a pagina intera" su A4 verticale, trasliamo
+        # l'origine al vero (0,0) della pagina.
         width, height = A4
+
+        # Deve essere coerente con i margini del SimpleDocTemplate (vedi genera_pdf_relazione_bytes)
+        left_margin = 18 * mm
+        bottom_margin = 18 * mm
+        c.saveState()
+        c.translate(-left_margin, -bottom_margin)
 
         margin_x = 18 * mm
         margin_top = 18 * mm
@@ -267,6 +276,8 @@ class EngineeringCoverPage(Flowable):
         c.setFont("Times-Roman", 8)
         c.drawString(margin_x, block_y + block_h + 6*mm, note[:120])
 
+        c.restoreState()
+
 
 class LegacyCoverPage(Flowable):
     """Cover a riquadri (titolo / indice / firma) - legacy."""
@@ -281,6 +292,12 @@ class LegacyCoverPage(Flowable):
     def draw(self):
         c = self.canv
         width, height = A4
+
+        # Anche questa cover è un Flowable: riportiamo l'origine al (0,0) pagina
+        left_margin = 18 * mm
+        bottom_margin = 18 * mm
+        c.saveState()
+        c.translate(-left_margin, -bottom_margin)
 
         left = 20 * mm
         right = 20 * mm
@@ -415,6 +432,8 @@ class LegacyCoverPage(Flowable):
             c.setFillColor(colors.grey)
             c.drawCentredString(left + w / 2, y3_bot + 8 * mm, meta)
             c.setFillColor(colors.black)
+
+        c.restoreState()
 
 
 def _draw_header_footer(c: canvas.Canvas, doc, data: Dict[str, Any]):
