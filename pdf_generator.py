@@ -133,8 +133,143 @@ def _build_indice_items(_: Dict[str, Any]) -> List[str]:
     ]
 
 
-class CoverPage(Flowable):
-    """Cover a riquadri (titolo / indice / firma)."""
+
+class EngineeringCoverPage(Flowable):
+    """Cover page tipica per documenti di ingegneria con title-block e spazio timbro.
+
+    Layout:
+    - Titolo documento al centro-alto
+    - Nome progetto in evidenza
+    - Title-block tecnico in basso a destra (Cod. progetto / N. doc / Rev / Data / Progettista / Committente)
+    - Riquadro timbro/firma in basso a sinistra (con immagine opzionale PNG)
+    """
+
+    def __init__(self, data: Dict[str, Any]):
+        super().__init__()
+        self.data = data
+
+    def wrap(self, availWidth, availHeight):
+        return availWidth, availHeight
+
+    def _first_line(self, s: Any) -> str:
+        if not s:
+            return ""
+        if isinstance(s, str):
+            return s.strip().split("\n")[0].strip()
+        return str(s).strip()
+
+    def draw(self):
+        c = self.canv
+        width, height = A4
+
+        margin_x = 18 * mm
+        margin_top = 18 * mm
+        margin_bottom = 18 * mm
+
+        # ---- dati
+        titolo = self.data.get("titolo_cover") or "RELAZIONE TECNICO-SPECIALISTICA"
+        nome_progetto = self.data.get("nome_progetto") or self.data.get("oggetto_intervento") or "Progetto: ________"
+        sottotitolo = self.data.get("sottotitolo_cover") or "IMPIANTO ELETTRICO"
+        committente = self.data.get("committente_nome") or ""
+        indirizzo = self.data.get("impianto_indirizzo") or self.data.get("luogo_intervento") or ""
+        cod_progetto = self.data.get("cod_progetto") or ""
+        n_doc = self.data.get("n_documento") or self.data.get("n_doc") or ""
+        rev = self.data.get("revisione") or self.data.get("rev") or ""
+        data_doc = self.data.get("data_documento") or self.data.get("data_doc") or ""
+        progettista = (self.data.get("progettista_nome") or self._first_line(self.data.get("progettista_blocco")) 
+                       or self._first_line(self.data.get("firma")))
+
+        # ---- stile base
+        c.setStrokeColor(colors.black)
+        c.setFillColor(colors.black)
+
+        # Titoli (centro pagina, stile "engineering")
+        c.setFont("Times-Bold", 22)
+        c.drawCentredString(width / 2, height - margin_top - 18 * mm, titolo)
+
+        c.setFont("Times-Bold", 18)
+        c.drawCentredString(width / 2, height - margin_top - 32 * mm, nome_progetto)
+
+        c.setFont("Times-Roman", 12)
+        c.drawCentredString(width / 2, height - margin_top - 42 * mm, sottotitolo)
+
+        # Riga info (committente / indirizzo)
+        info_y = height - margin_top - 58 * mm
+        c.setFont("Times-Bold", 10)
+        c.drawString(margin_x, info_y, "Committente:")
+        c.setFont("Times-Roman", 10)
+        c.drawString(margin_x + 26*mm, info_y, committente[:95])
+
+        c.setFont("Times-Bold", 10)
+        c.drawString(margin_x, info_y - 6*mm, "Luogo:")
+        c.setFont("Times-Roman", 10)
+        c.drawString(margin_x + 26*mm, info_y - 6*mm, indirizzo[:95])
+
+        # Linea di separazione
+        c.setLineWidth(1)
+        c.line(margin_x, info_y - 14*mm, width - margin_x, info_y - 14*mm)
+
+        # ---- title-block (basso)
+        block_h = 52 * mm
+        block_w = 92 * mm
+        block_x = width - margin_x - block_w
+        block_y = margin_bottom
+
+        # Riquadro timbro (basso sinistra)
+        stamp_w = 82 * mm
+        stamp_h = 52 * mm
+        stamp_x = margin_x
+        stamp_y = margin_bottom
+        c.setLineWidth(1)
+        c.rect(stamp_x, stamp_y, stamp_w, stamp_h)
+
+        c.setFont("Times-Bold", 9)
+        c.drawString(stamp_x + 3*mm, stamp_y + stamp_h - 5*mm, "Spazio timbro / firma")
+
+        timbro_bytes = self.data.get("timbro_bytes") or self.data.get("timbro_image_bytes") or None
+        if timbro_bytes:
+            try:
+                img = ImageReader(BytesIO(timbro_bytes))
+                # area immagine con margini
+                c.drawImage(img, stamp_x + 3*mm, stamp_y + 3*mm, stamp_w - 6*mm, stamp_h - 12*mm, preserveAspectRatio=True, anchor='c')
+            except Exception:
+                pass
+
+        # Title-block tecnico
+        c.setLineWidth(1)
+        c.rect(block_x, block_y, block_w, block_h)
+
+        # griglia interna: 6 righe
+        rows = 6
+        row_h = block_h / rows
+        for i in range(1, rows):
+            y = block_y + i * row_h
+            c.line(block_x, y, block_x + block_w, y)
+
+        # 2 colonne (label / value)
+        split = block_x + 28 * mm
+        c.line(split, block_y, split, block_y + block_h)
+
+        labels = ["Cod. Progetto", "N. Documento", "Revisione", "Data", "Progettista", "Committente"]
+        values = [cod_progetto, n_doc, rev, data_doc, progettista, committente]
+
+        c.setFont("Times-Bold", 8.5)
+        c.setFillColor(colors.black)
+        for i, (lab, val) in enumerate(zip(labels, values)):
+            y_text = block_y + block_h - (i + 0.7) * row_h
+            c.drawString(block_x + 2*mm, y_text, lab)
+            c.setFont("Times-Roman", 8.5)
+            c.drawString(split + 2*mm, y_text, (val or "")[:40])
+            c.setFont("Times-Bold", 8.5)
+
+        # Nota legale minima
+        note = self.data.get("disclaimer_cover") or "Documento emesso a supporto della DiCo ex D.M. 37/08; eventuali aggiornamenti normativi successivi non sono inclusi."
+        c.setFont("Times-Roman", 8)
+        c.drawString(margin_x, block_y + block_h + 6*mm, note[:120])
+
+
+class LegacyCoverPage(Flowable):
+    """Cover a riquadri (titolo / indice / firma) - legacy."""
 
     def __init__(self, data: Dict[str, Any]):
         super().__init__()
@@ -375,7 +510,8 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story: List[Any] = []
 
     # 1) COVER
-    story.append(CoverPage(data))
+    cover_style = (data.get('cover_style') or 'engineering').lower()
+    story.append(EngineeringCoverPage(data) if cover_style.startswith('eng') else LegacyCoverPage(data))
     story.append(PageBreak())
 
     # 2) REVISIONI

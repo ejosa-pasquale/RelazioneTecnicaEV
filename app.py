@@ -44,6 +44,9 @@ with c3:
     tensione = st.text_input("Tensione/Frequenza", "230/400 V - 50 Hz")
     potenza_disp_kw = st.text_input("Potenza impegnata / disponibile", "XXXX (Inserire)")
     cod_progetto = st.text_input("Cod. progetto", "XXXX (Inserire)")
+    nome_progetto = st.text_input("Nome progetto", "XXXX (Inserire)")
+    cover_style = st.selectbox("Stile cover", ["Engineering (title-block)", "A riquadri (legacy)"], index=0)
+
     n_doc = st.text_input("N. documento", "XXXX (Inserire)")
     revisione = st.text_input("Revisione", "00")
     data_doc = st.date_input("Data", value=date.today())
@@ -567,6 +570,7 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "committente_nome": committente,
         "impianto_indirizzo": luogo,
         "data": data_doc.strftime("%d/%m/%Y"),
+        "data_documento": data_doc.strftime("%d/%m/%Y"),
         "header_titolo": "Relazione Tecnica - Impianto Elettrico (DiCo)",
         "progettista_blocco": progettista_blocco,
         "premessa": premessa,
@@ -584,7 +588,10 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "disclaimer_calcoli": "Calcoli e verifiche riportati sono di sintesi e a supporto documentale. Non sostituiscono un progetto esecutivo completo né le verifiche previste dalle norme applicabili.",
         "titolo_cover": "RELAZIONE TECNICA - IMPIANTO ELETTRICO (DiCo)",
         "sottotitolo_cover": oggetto,
+        "nome_progetto": nome_progetto,
+        "cover_style": ("engineering" if cover_style.startswith("Engineering") else "legacy"),
         "firma": firmatario,
+        "timbro_bytes": timbro_bytes,
         "oggetto_intervento": oggetto,
         "tipologia": tipologia,
         "sistema": sistema,
@@ -592,7 +599,9 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "potenza_disp": potenza_disp_kw,
         "cod_progetto": cod_progetto,
         "n_doc": n_doc,
+        "n_documento": n_doc,
         "rev": revisione,
+        "revisione": revisione,
         "impresa": impresa,
         "luogo_firma": luogo_firma,
         "data_firma": data_firma.strftime("%d/%m/%Y"),
