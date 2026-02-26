@@ -568,8 +568,8 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     # Nota calcoli
     disclaimer = data.get(
         "disclaimer_calcoli",
-        "I calcoli e le verifiche riportate sono di sintesi e hanno finalità di supporto documentale. "
-        "Non sostituiscono un progetto esecutivo completo né le verifiche prescrittive previste dalle norme applicabili.",
+        "I calcoli e le verifiche riportate sono di sintesi e in linea con le normative applicabili"
+        "Le raccomandazioni non sostituiscono le verifiche prescrittive previste dalle norme applicabili.",
     )
     if _meaningful(disclaimer):
         story.append(_p("NOTA", h2))
