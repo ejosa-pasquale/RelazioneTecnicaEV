@@ -24,7 +24,7 @@ with st.sidebar:
     dv_lim = st.number_input("Caduta di tensione max (%)", min_value=1.0, max_value=10.0, value=4.0, step=0.5)
     ul_tt = st.number_input("UL sistema TT (V) – criterio Ra·Idn ≤ UL", min_value=25.0, max_value=100.0, value=50.0, step=5.0)
     st.divider()
-    st.markdown("**Nota**: calcoli di sintesi (supporto alla DiCo). La nota viene riportata anche nel PDF. Per casi complessi usare calcolo/progetto dedicato.")
+    st.markdown("**Nota**: - ")
 
 # =========================
 # DATI IDENTIFICATIVI
