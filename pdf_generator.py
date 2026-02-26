@@ -219,13 +219,13 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     # Verifiche: se tutto è vuoto non stampare (ma di solito serve)
     ver = data.get("verifiche","")
     if _meaningful(ver):
-        story.append(_p("CAPITOLO 6 - VERIFICHE, PROVE E COLLAUDI", styles["Heading2"]))
+        story.append(_p("CAPITOLO 7 - VERIFICHE, PROVE E COLLAUDI", styles["Heading2"]))
         story.append(_p(ver, styles["BodyText"]))
         story.append(Spacer(1, 10))
 
     man = data.get("manutenzione","")
     if _meaningful(man):
-        story.append(_p("CAPITOLO 7 - ESERCIZIO, MANUTENZIONE E AVVERTENZE", styles["Heading2"]))
+        story.append(_p("CAPITOLO 8 - ESERCIZIO, MANUTENZIONE E AVVERTENZE", styles["Heading2"]))
         story.append(_p(man, styles["BodyText"]))
         story.append(Spacer(1, 10))
 
