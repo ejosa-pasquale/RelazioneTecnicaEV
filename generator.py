@@ -200,35 +200,62 @@ def _insert_bullets(doc: Document, marker: str, lines: List[str], heading: Optio
         last_elm = bp._p
 
 
+def _delete_paragraph(p):
+    # Remove a paragraph from the document
+    p._element.getparent().remove(p._element)
+    p._p = p._element = None
+
+
+def _is_heading_like(text: str) -> bool:
+    t = (text or "").strip()
+    # match headings like "5 ..." or "5\t..." or "5. ..."
+    return bool(re.match(r"^\d+(\.|)\s+", t))
+
+
 def _insert_layout_text(doc: Document, marker: str, included: str, excluded: str):
     """
-    Inserisce il layout:
-    - se trova il placeholder {{LAYOUT_DESCRITTIVO}} lo sostituisce lì.
-    - altrimenti prova a inserirlo subito dopo il titolo 'LAYOUT D'IMPIANTO' (fallback).
+    Aggiorna *davvero* la sezione Layout:
+    - Se esiste il placeholder {{LAYOUT_DESCRITTIVO}} lo usa.
+    - Altrimenti trova il titolo 'LAYOUT D'IMPIANTO' e:
+        1) cancella tutto il contenuto successivo della sezione (paragrafi + bullet) fino al prossimo heading numerato
+        2) inserisce i nuovi bullet (Incluso/Escluso)
     """
+    # 1) preferenza: placeholder
     p = _find_paragraph_with_marker(doc, marker)
-    anchor = None
-    wipe_anchor = True
-
     if p:
         anchor = p
-    else:
-        # fallback: cerca il titolo
-        title = _find_paragraph_contains(doc, "LAYOUT D'IMPIANTO")
-        if not title:
-            title = _find_paragraph_contains(doc, "LAYOUT D’IMPIANTO")  # apostrofo tipografico
-        if title:
-            anchor = title
-            wipe_anchor = False  # non cancellare il titolo
-
-    if not anchor:
-        return
-
-    if wipe_anchor:
         _wipe_paragraph_text(anchor)
         anchor.add_run("Layout d’impianto (descrizione):").bold = True
+        elm = anchor._p
+    else:
+        # 2) fallback: heading layout
+        title = _find_paragraph_contains(doc, "LAYOUT D'IMPIANTO") or _find_paragraph_contains(doc, "LAYOUT D’IMPIANTO")
+        if not title:
+            return
+        # Cancella contenuto della sezione: da dopo il titolo fino al prossimo heading numerato
+        paragraphs = list(doc.paragraphs)
+        try:
+            idx = paragraphs.index(title)
+        except ValueError:
+            idx = None
+        if idx is not None:
+            # delete in reverse order to keep indices stable
+            to_delete = []
+            for p2 in paragraphs[idx+1:]:
+                # stop when next heading starts
+                if _is_heading_like(p2.text):
+                    break
+                # anche se è vuoto, lo togliamo
+                to_delete.append(p2)
+            for p2 in reversed(to_delete):
+                try:
+                    _delete_paragraph(p2)
+                except Exception:
+                    pass
 
-    elm = anchor._p
+        # Inserisci subito dopo il titolo
+        elm = title._p
+
     def add_label(lbl: str):
         p_lbl = doc.add_paragraph(lbl)
         if p_lbl.runs:
@@ -250,7 +277,6 @@ def _insert_layout_text(doc: Document, marker: str, included: str, excluded: str
             if line.strip():
                 bp = doc.add_paragraph(line.strip(), style="List Bullet" if "List Bullet" in doc.styles else None)
                 elm.addnext(bp._p); elm = bp._p
-
 
 def _insert_esecutrice_placeholder(doc: Document, marker: str, esecutrice: EsecutriceData):
     p = _find_paragraph_with_marker(doc, marker)
