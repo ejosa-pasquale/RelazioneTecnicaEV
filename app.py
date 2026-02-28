@@ -363,9 +363,7 @@ with tab1:
         # (se compili qualcosa, verrà inserita; altrimenti resterà vuota)
 
         if missing_required:
-            st.error("Mancano dati obbligatori per queste sezioni del template:
-- " + "
-- ".join(missing_required))
+            st.error("Mancano dati obbligatori per queste sezioni del template:\n- " + "\n- ".join(missing_required))
             st.stop()
         progettista = ProgettistaData(
             nome=progettista_nome,
