@@ -783,14 +783,15 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "data_firma": data_firma.strftime("%d/%m/%Y"),
     }
 
-# --- Pulizia: se un campo non è stato compilato non deve comparire nel PDF (niente "XXXX"/placeholder)
-for k, v in list(payload.items()):
-    if isinstance(v, str) and not _meaningful(v):
-        payload[k] = ""
-# Tabelle/elenchi: rimuove righe non compilate
-payload["evse"] = _clean_records(payload.get("evse"), require_keys=["Potenza (kW)", "Marca", "Modello"])
-payload["checklist_documentale"] = _clean_records(payload.get("checklist_documentale"), require_keys=["Stato"])
-payload["verifiche_tabella"] = _clean_records(payload.get("verifiche_tabella"), require_keys=["Esito", "Note"])
+    # --- Pulizia: se un campo non è stato compilato non deve comparire nel PDF (niente "XXXX"/placeholder)
+    for k, v in list(payload.items()):
+        if isinstance(v, str) and not _meaningful(v):
+            payload[k] = ""
+
+    # Tabelle/elenchi: rimuove righe non compilate
+    payload["evse"] = _clean_records(payload.get("evse"), require_keys=["Potenza (kW)", "Marca", "Modello"])
+    payload["checklist_documentale"] = _clean_records(payload.get("checklist_documentale"), require_keys=["Stato"])
+    payload["verifiche_tabella"] = _clean_records(payload.get("verifiche_tabella"), require_keys=["Esito", "Note"])
 
 
     pdf_bytes = genera_pdf_relazione_bytes(payload)
