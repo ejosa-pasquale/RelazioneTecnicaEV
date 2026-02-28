@@ -2,24 +2,21 @@
 import datetime as dt
 import json
 from pathlib import Path
-from typing import List, Optional
 
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
-from generator import PhotoItem, RelazioneData, generate_docx, maybe_convert_to_pdf
+from generator import PhotoItem, RelazioneData, generate_docx_bytes
 
 
 APP_DIR = Path(__file__).parent
-TEMPLATE_PATH = APP_DIR / "templates" / "relazione_base.docx"
-OUTPUT_DIR = APP_DIR / "output"
+DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "relazione_base.docx"
 PROFILES_DIR = APP_DIR / "profiles"
 
-
 st.set_page_config(page_title="Generatore Relazione Progetto Elettrico", layout="wide")
-
 st.title("Generatore relazione tecnica (progetto elettrico)")
-st.caption("Compila i campi, aggiungi foto/diagramma e genera la relazione in .docx (e PDF se LibreOffice è disponibile).")
+st.caption("Compila i campi, aggiungi foto/diagramma e scarica il DOCX generato (download sempre disponibile).")
+
 
 # ---------- Helpers ----------
 def load_profile(name: str) -> dict:
@@ -29,19 +26,27 @@ def load_profile(name: str) -> dict:
     return {}
 
 def save_profile(name: str, data: dict) -> None:
+    # Nota: su Streamlit Cloud la repo può essere read-only. Proviamo; se fallisce, avvisiamo.
     PROFILES_DIR.mkdir(parents=True, exist_ok=True)
     p = PROFILES_DIR / f"{name}.json"
     p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-# ---------- Sidebar: profilo ----------
+# ---------- Session state ----------
+if "photos" not in st.session_state:
+    st.session_state.photos = []
+if "diagram_bytes" not in st.session_state:
+    st.session_state.diagram_bytes = None
+if "template_bytes" not in st.session_state:
+    st.session_state.template_bytes = DEFAULT_TEMPLATE_PATH.read_bytes()
+
+
+# ---------- Sidebar ----------
 with st.sidebar:
-    st.header("Profilo progetto (dati che non cambiano)")
+    st.header("Profilo progetto (dati fissi)")
     existing_profiles = sorted([p.stem for p in PROFILES_DIR.glob("*.json")]) or ["default"]
     profile_name = st.selectbox("Seleziona profilo", options=existing_profiles, index=0)
     profile = load_profile(profile_name) or load_profile("default")
-
-    st.caption("Suggerimento: imposta una volta i dati fissi e salva il profilo. Poi ti resteranno precompilati.")
 
     st.divider()
     st.header("Dati anagrafici")
@@ -54,9 +59,9 @@ with st.sidebar:
     sito_cap_citta = st.text_input("CAP e Città (sito)", value=profile.get("sito_cap_citta", "55100 Lucca"))
 
     st.header("Richiedente")
-    richiedente_nome = st.text_input("Ragione sociale", value=profile.get("richiedente_nome", "Telebit Spa"))
-    richiedente_indirizzo = st.text_input("Indirizzo (richiedente)", value=profile.get("richiedente_indirizzo", "Via S. Rocco, 65"))
-    richiedente_cap_citta = st.text_input("CAP e Città (richiedente)", value=profile.get("richiedente_cap_citta", "20874 Busnago"))
+    richiedente_nome = st.text_input("Richiedente", value=profile.get("richiedente_nome", "Ing Pasquale Senese"))
+    richiedente_indirizzo = st.text_input("Indirizzo (opzionale)", value=profile.get("richiedente_indirizzo", ""))
+    richiedente_cap_citta = st.text_input("CAP e Città (opzionale)", value=profile.get("richiedente_cap_citta", ""))
 
     st.header("Oggetto")
     oggetto = st.text_input("Oggetto intervento", value=profile.get("oggetto", "nuovo impianto di ricarica per veicolo elettrico"))
@@ -78,63 +83,56 @@ with st.sidebar:
     st.subheader("Salva profilo")
     new_profile_name = st.text_input("Nome profilo (per salvare)", value=profile_name)
     if st.button("Salva / aggiorna profilo", use_container_width=True):
-        save_profile(new_profile_name, {
-            "luogo": luogo,
-            "committente_nome": committente_nome,
-            "sito_indirizzo": sito_indirizzo,
-            "sito_cap_citta": sito_cap_citta,
-            "richiedente_nome": richiedente_nome,
-            "richiedente_indirizzo": richiedente_indirizzo,
-            "richiedente_cap_citta": richiedente_cap_citta,
-            "oggetto": oggetto,
-            "distanza_m": distanza_m,
-            "potenza_impegnata_kw": potenza_impegnata_kw,
-            "potenza_wallbox_kw": potenza_wallbox_kw,
-            "cavo_lunghezza_m": cavo_lunghezza_m,
-            "cavo_tipo": cavo_tipo,
-            "modello_wallbox": modello_wallbox,
-            "ik_trifase_ka": ik_trifase_ka,
-            "ik_monofase_ka": ik_monofase_ka,
-        })
-        st.success("Profilo salvato.")
+        try:
+            save_profile(new_profile_name, {
+                "luogo": luogo,
+                "committente_nome": committente_nome,
+                "sito_indirizzo": sito_indirizzo,
+                "sito_cap_citta": sito_cap_citta,
+                "richiedente_nome": richiedente_nome,
+                "richiedente_indirizzo": richiedente_indirizzo,
+                "richiedente_cap_citta": richiedente_cap_citta,
+                "oggetto": oggetto,
+                "distanza_m": distanza_m,
+                "potenza_impegnata_kw": potenza_impegnata_kw,
+                "potenza_wallbox_kw": potenza_wallbox_kw,
+                "cavo_lunghezza_m": cavo_lunghezza_m,
+                "cavo_tipo": cavo_tipo,
+                "modello_wallbox": modello_wallbox,
+                "ik_trifase_ka": ik_trifase_ka,
+                "ik_monofase_ka": ik_monofase_ka,
+            })
+            st.success("Profilo salvato.")
+        except Exception as e:
+            st.warning("Non riesco a scrivere su disco (tipico su Streamlit Cloud). Il profilo non è stato salvato.")
+            st.caption(str(e))
 
     st.divider()
-    st.subheader("Template")
-    st.write("Di default uso il template basato sul tuo DOCX.")
+    st.subheader("Template (senza logo Telebit)")
+    st.write("Uso il template **no-logo** come base. Puoi comunque caricarne uno alternativo.")
     uploaded_template = st.file_uploader("Sostituisci template (.docx)", type=["docx"])
     if uploaded_template:
-        TEMPLATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        TEMPLATE_PATH.write_bytes(uploaded_template.getvalue())
-        st.success("Template aggiornato.")
-    st.caption("Per foto e diagramma inserisci nel template i placeholder: {{FOTO_GALLERY}} e {{DIAGRAMMA_IMPIANTO}}")
+        st.session_state.template_bytes = uploaded_template.getvalue()
+        st.success("Template caricato (in memoria).")
+    st.caption("Per foto e diagramma inserisci nel template: {{FOTO_GALLERY}} e {{DIAGRAMMA_IMPIANTO}}")
 
 
-# ---------- Main content ----------
-tab1, tab2, tab3 = st.tabs(["Dati & Generazione", "Foto di cantiere", "Diagramma impianto"])
-
-# Foto (stato condiviso)
-if "photos" not in st.session_state:
-    st.session_state.photos = []  # List[PhotoItem]
-if "diagram_bytes" not in st.session_state:
-    st.session_state.diagram_bytes = None  # bytes
+# ---------- Tabs ----------
+tab1, tab2, tab3 = st.tabs(["Dati & Download", "Foto di cantiere", "Diagramma impianto"])
 
 with tab2:
     st.subheader("Foto")
-    st.write("Carica più immagini (JPG/PNG). Puoi aggiungere una didascalia per ciascuna.")
-    uploads = st.file_uploader("Carica foto", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+    uploads = st.file_uploader("Carica foto (JPG/PNG)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
     if uploads:
-        # merge senza duplicati per filename
         existing = {p.filename for p in st.session_state.photos}
         for u in uploads:
             if u.name not in existing:
                 st.session_state.photos.append(PhotoItem(filename=u.name, content=u.getvalue(), caption=""))
-        st.success(f"Aggiunte {len(uploads)} foto (se non già presenti).")
+        st.success("Foto aggiunte.")
 
     if st.session_state.photos:
-        st.divider()
-        st.write("Gestione foto (anteprima + didascalia):")
         for i, item in enumerate(list(st.session_state.photos)):
-            c1, c2, c3 = st.columns([1, 2, 0.5])
+            c1, c2, c3 = st.columns([1, 2, 0.6])
             with c1:
                 st.image(item.content, use_container_width=True)
             with c2:
@@ -144,25 +142,22 @@ with tab2:
                 if st.button("Rimuovi", key=f"rm_{i}"):
                     st.session_state.photos.pop(i)
                     st.rerun()
-
-        st.caption("Nel DOCX le foto verranno inserite dove trovi {{FOTO_GALLERY}} (griglia 2 colonne).")
+        st.caption("Nel DOCX le foto entrano dove trovi {{FOTO_GALLERY}}.")
     else:
         st.info("Nessuna foto caricata (opzionale).")
 
 
 with tab3:
     st.subheader("Diagramma impianto")
-    st.write("Puoi **caricare** un diagramma (PNG/JPG) oppure **disegnarlo** rapidamente qui.")
     mode = st.radio("Metodo", ["Carica immagine", "Disegna"], horizontal=True)
 
     if mode == "Carica immagine":
-        diag_up = st.file_uploader("Carica diagramma", type=["jpg", "jpeg", "png"], accept_multiple_files=False)
+        diag_up = st.file_uploader("Carica diagramma (JPG/PNG)", type=["jpg", "jpeg", "png"], accept_multiple_files=False)
         if diag_up:
             st.session_state.diagram_bytes = diag_up.getvalue()
             st.image(st.session_state.diagram_bytes, caption="Diagramma selezionato", use_container_width=True)
-
     else:
-        st.caption("Disegno semplice: usa mouse/trackpad per tracciare linee e note.")
+        st.caption("Disegno semplice: linee/annotazioni rapide. Poi salva il disegno come diagramma.")
         canvas = st_canvas(
             fill_color="rgba(255, 255, 255, 0)",
             stroke_width=3,
@@ -172,110 +167,66 @@ with tab3:
             drawing_mode="freedraw",
             key="canvas",
         )
-        colA, colB = st.columns([1, 1])
-        with colA:
-            if st.button("Usa disegno come diagramma", type="primary"):
-                if canvas.image_data is not None:
-                    # convert RGBA numpy -> PNG bytes
-                    import PIL.Image
-                    import numpy as np
-                    img = PIL.Image.fromarray(canvas.image_data.astype("uint8"), mode="RGBA").convert("RGB")
-                    import io
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    st.session_state.diagram_bytes = buf.getvalue()
-                    st.success("Diagramma salvato.")
-        with colB:
-            if st.session_state.diagram_bytes:
-                st.image(st.session_state.diagram_bytes, caption="Diagramma pronto per l'inserimento", use_container_width=True)
+        if st.button("Usa disegno come diagramma", type="primary"):
+            if canvas.image_data is not None:
+                import PIL.Image
+                import numpy as np
+                import io
+                img = PIL.Image.fromarray(canvas.image_data.astype("uint8"), mode="RGBA").convert("RGB")
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                st.session_state.diagram_bytes = buf.getvalue()
+                st.success("Diagramma salvato.")
+        if st.session_state.diagram_bytes:
+            st.image(st.session_state.diagram_bytes, caption="Diagramma pronto", use_container_width=True)
 
-    st.caption("Nel DOCX il diagramma verrà inserito dove trovi {{DIAGRAMMA_IMPIANTO}}.")
+    st.caption("Nel DOCX il diagramma entra dove trovi {{DIAGRAMMA_IMPIANTO}}.")
 
 
 with tab1:
-    col1, col2 = st.columns([1, 1])
+    st.subheader("Generazione")
+    st.warning(
+        "Per inserire **foto** e **diagramma** nel Word, nel template devono esserci i placeholder:\n"
+        "- {{FOTO_GALLERY}}\n"
+        "- {{DIAGRAMMA_IMPIANTO}}"
+    )
 
-    with col1:
-        st.subheader("Anteprima dati")
-        st.write(
-            {
-                "luogo_data": luogo_data,
-                "committente_nome": committente_nome,
-                "sito_indirizzo": sito_indirizzo,
-                "sito_cap_citta": sito_cap_citta,
-                "richiedente_nome": richiedente_nome,
-                "oggetto": oggetto,
-                "distanza_m": distanza_m,
-                "potenza_impegnata_kw": potenza_impegnata_kw,
-                "potenza_wallbox_kw": potenza_wallbox_kw,
-                "cavo": f"{cavo_lunghezza_m} m - {cavo_tipo}",
-                "wallbox": modello_wallbox,
-                "ik_trifase_ka": ik_trifase_ka,
-                "ik_monofase_ka": ik_monofase_ka,
-                "foto_caricate": len(st.session_state.photos),
-                "diagramma": "Sì" if st.session_state.diagram_bytes else "No",
-            }
+    filename_base = st.text_input("Nome file", value="relazione_progetto_elettrico")
+    if st.button("Genera e prepara download", type="primary", use_container_width=True):
+        data_obj = RelazioneData(
+            luogo_data=luogo_data,
+            committente_nome=committente_nome,
+            sito_indirizzo=sito_indirizzo,
+            sito_cap_citta=sito_cap_citta,
+            richiedente_nome=richiedente_nome,
+            richiedente_indirizzo=richiedente_indirizzo,
+            richiedente_cap_citta=richiedente_cap_citta,
+            oggetto=oggetto,
+            distanza_m=int(distanza_m),
+            potenza_impegnata_kw=float(potenza_impegnata_kw),
+            potenza_wallbox_kw=float(potenza_wallbox_kw),
+            cavo_tipo=cavo_tipo,
+            cavo_lunghezza_m=int(cavo_lunghezza_m),
+            modello_wallbox=modello_wallbox,
+            ik_trifase_ka=float(ik_trifase_ka),
+            ik_monofase_ka=float(ik_monofase_ka),
         )
 
-    with col2:
-        st.subheader("Generazione documento")
-        st.warning(
-            "Per inserire **foto** e **diagramma** nel file Word, apri il template e inserisci i placeholder:\n"
-            "- {{FOTO_GALLERY}}\n"
-            "- {{DIAGRAMMA_IMPIANTO}}\n\n"
-            "Esattamente così, nella posizione desiderata."
+        docx_bytes = generate_docx_bytes(
+            template=st.session_state.template_bytes,
+            data=data_obj,
+            photos=st.session_state.photos,
+            diagram_bytes=st.session_state.diagram_bytes,
         )
 
-        filename_base = st.text_input("Nome file", value="relazione_progetto_elettrico")
-        generate = st.button("Genera relazione", type="primary", use_container_width=True)
+        st.session_state["last_docx_bytes"] = docx_bytes
+        st.success("Documento generato. Ora puoi scaricarlo qui sotto.")
 
-        if generate:
-            data_obj = RelazioneData(
-                luogo_data=luogo_data,
-                committente_nome=committente_nome,
-                sito_indirizzo=sito_indirizzo,
-                sito_cap_citta=sito_cap_citta,
-                richiedente_nome=richiedente_nome,
-                richiedente_indirizzo=richiedente_indirizzo,
-                richiedente_cap_citta=richiedente_cap_citta,
-                oggetto=oggetto,
-                distanza_m=int(distanza_m),
-                potenza_impegnata_kw=float(potenza_impegnata_kw),
-                potenza_wallbox_kw=float(potenza_wallbox_kw),
-                cavo_tipo=cavo_tipo,
-                cavo_lunghezza_m=int(cavo_lunghezza_m),
-                modello_wallbox=modello_wallbox,
-                ik_trifase_ka=float(ik_trifase_ka),
-                ik_monofase_ka=float(ik_monofase_ka),
-            )
-
-            out_docx = OUTPUT_DIR / f"{filename_base}.docx"
-            generate_docx(
-                TEMPLATE_PATH,
-                out_docx,
-                data_obj,
-                photos=st.session_state.photos,
-                diagram_bytes=st.session_state.diagram_bytes,
-            )
-
-            st.success("Relazione generata.")
-            st.download_button(
-                "Scarica DOCX",
-                data=out_docx.read_bytes(),
-                file_name=out_docx.name,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True,
-            )
-
-            pdf_path = OUTPUT_DIR / f"{filename_base}.pdf"
-            pdf_ok = maybe_convert_to_pdf(out_docx, pdf_path)
-            if pdf_ok:
-                st.download_button(
-                    "Scarica PDF",
-                    data=pdf_ok.read_bytes(),
-                    file_name=pdf_ok.name,
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-            else:
-                st.caption("PDF non disponibile (LibreOffice non trovato).")
+    if st.session_state.get("last_docx_bytes"):
+        st.download_button(
+            "Scarica DOCX",
+            data=st.session_state["last_docx_bytes"],
+            file_name=f"{filename_base}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+        )

@@ -58,3 +58,12 @@ Poi, dall’app:
 ## Profili progetto (dati che non cambiano)
 
 Nella sidebar puoi salvare e richiamare un profilo JSON (cartella `profiles/`) per tenere precompilati i dati fissi.
+
+## Fix download (Streamlit Cloud)
+
+Questa versione genera il DOCX **in memoria** (BytesIO) e lo passa direttamente a `st.download_button`,
+così il download funziona anche su ambienti dove il filesystem è **read-only**.
+
+## Template senza logo
+
+Il template di default è `relazione progetto elettrico -no logo.docx` (copiato in `templates/relazione_base.docx`).
