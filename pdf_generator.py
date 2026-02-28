@@ -93,24 +93,24 @@ def _first_nonempty_line(text: str) -> str:
 
 
 class _NumberedCanvas(canvas.Canvas):
-    """Canvas che consente 'Pagina X di Y'."""
+    """Canvas con numerazione 'Pagina X di Y' senza duplicare le pagine."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states: List[dict] = []
 
     def showPage(self):
+        # Salva lo stato della pagina corrente e prepara la successiva
         self._saved_page_states.append(dict(self.__dict__))
-        super().showPage()
+        self._startPage()
 
     def save(self):
-        page_count = len(self._saved_page_states) + 1
+        page_count = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
             self._draw_page_number(page_count)
-            super().showPage()
-        self._draw_page_number(page_count)
-        super().save()
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
 
     def _draw_page_number(self, page_count: int):
         self.saveState()
@@ -119,6 +119,7 @@ class _NumberedCanvas(canvas.Canvas):
         self.drawRightString(200 * mm, 10 * mm, f"Pagina {self._pageNumber} di {page_count}")
         self.setFillColor(colors.black)
         self.restoreState()
+
 
 
 def _build_indice_items(_: Dict[str, Any]) -> List[str]:
@@ -738,6 +739,13 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(_p(data.get("norme", ""), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
+
+    aspetti_norm = data.get("aspetti_normativi_estesi", "")
+    if _meaningful(aspetti_norm):
+        story.append(_p("2.1 Aspetti normativi e prescrizioni specifiche", h3))
+        story.append(_p(aspetti_norm, styles["BodyText"]))
+        story.append(Spacer(1, 10))
+
     criterio = data.get("criterio_progetto", "")
     if _meaningful(criterio):
         story.append(_p("CAPITOLO 3 - CRITERI DI PROGETTO DEGLI IMPIANTI", h2))
@@ -947,6 +955,14 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
             story.append(Spacer(1, 8))
             story.append(_p("6.1 Documentazione fotografica (estratto)", h3))
             story.extend(photo_flows)
+
+
+    # Appendice / Relazione estesa (opzionale, stile template Word)
+    rel_estesa = data.get("relazione_estesa", "")
+    if _meaningful(rel_estesa):
+        story.append(PageBreak())
+        story.append(_p("APPENDICE A - RELAZIONE TECNICA ESTESA", h2))
+        story.append(_p(rel_estesa, styles["BodyText"]))
 
     # Firma finale (facoltativa)
     luogo_f = data.get("luogo_firma", "")

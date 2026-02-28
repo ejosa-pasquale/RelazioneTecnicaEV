@@ -510,6 +510,80 @@ norme = f"""Si riportano i principali riferimenti legislativi e normativi applic
 Eventuali ulteriori prescrizioni di Enti/Autorità locali: {prescrizioni_enti}.
 """
 
+
+# =========================
+# TEMPLATE ESTESO (OPZIONALE)
+# =========================
+st.subheader("Sezioni estese (opzionali)")
+usa_template_esteso = st.checkbox(
+    "Includi sezioni estese (più paragrafi, stile template Word)",
+    value=True,
+    help="Se attivo, puoi inserire (o mantenere) testi estesi che verranno riportati nel PDF. Se lasci vuoto, non verranno stampati."
+)
+
+default_aspetti = '''Aspetti normativi (integrazione)
+- Infrastrutture di ricarica EV: prescrizioni della CEI 64-8 Sez. 722 e della CEI EN 61851-1, ove applicabili.
+- Sicurezza nei luoghi di lavoro: le attività di installazione/manutenzione devono svolgersi nel rispetto del D.Lgs. 81/2008 e s.m.i., con idonee procedure, DPI e qualifiche.
+- Prevenzione incendi: se l’infrastruttura di ricarica è installata all’interno di attività soggette ai controlli VV.F., devono essere rispettate le indicazioni e prescrizioni applicabili (anche in coerenza con il progetto antincendio dell’attività).
+- Accessibilità: eventuali limitazioni di accesso ai locali tecnici si intendono nei limiti consentiti dalla normativa applicabile (D.M. 236/1989 e s.m.i.), se pertinente.
+'''
+
+default_relazione_estesa = '''AREA DI INTERVENTO E TIPO DI ATTIVITÀ
+Descrivere se l’installazione è outdoor/indoor, area privata/condominiale, autorimessa, parcheggio, ecc., indicando eventuali vincoli riscontrati.
+
+TIPO DI IMPIANTO
+Impianto elettrico utilizzatore in BT con alimentazione dal punto di consegna del Distributore; indicare categoria/uso e destinazione d’uso dei locali.
+
+PUNTO DI ORIGINE E PERCORSI
+Indicare il punto di origine dell’alimentazione (quadro/contatore) e la lunghezza indicativa della tratta, modalità posa e attraversamenti.
+
+SISTEMA DI FORNITURA / TENSIONE / FREQUENZA
+Indicare monofase/trifase, 230/400 V, 50 Hz e qualsiasi prescrizione del Distributore.
+
+SISTEMA DI DISTRIBUZIONE E TERRA
+Specificare TT/TN e criteri di coordinamento tra terra e dispositivi di protezione.
+
+CORRENTE DI CORTO CIRCUITO
+Indicare Icc presunta al punto di installazione e il criterio di scelta del potere di interruzione dei dispositivi.
+
+POTENZA IMPEGNATA E CONTEMPORANEITÀ
+Indicare potenza contrattuale e potenze installate; motivare eventuali fattori di contemporaneità/utilizzazione.
+
+CADUTA DI TENSIONE
+Richiamare il limite di progetto (tipicamente ≤ 4% a fondo linea in BT) e i valori calcolati dove disponibili.
+
+CORRENTI DI IMPIEGO E PORTATE DEI CAVI
+Richiamare che il dimensionamento è eseguito secondo tabelle CEI-UNEL e coefficienti di correzione (posa, temperatura, raggruppamento).
+
+SEZIONI MINIME CONDUTTORI (FASE/NEUTRO/PE/TERRA)
+Riportare criteri normativi (CEI 64-8, Tab. 54F/54A) e verifiche (I²t, K²S²) dove applicabili.
+
+SEZIONAMENTO E COMANDO
+Descrivere i dispositivi di sezionamento, comando funzionale e interruzione per manutenzione non elettrica.
+
+PROTEZIONI (CONTATTI DIRETTI/INDIRETTI, SOVRACCARICHI, CORTOCIRCUITI)
+Richiamare i principi: isolamento/involucri IP adeguati; interruzione automatica dell’alimentazione; coordinamento Ib–In–Iz e If ≤ 1,45 Iz; PdI/Icu > Icc.
+
+QUADRI, APPARECCHIATURE E CAVI
+Descrivere criteri di scelta e conformità (CEI EN 61439, CEI EN 60947-2, CPR per cavi, marcature, identificazione conduttori).
+
+VERIFICHE
+Richiamare le verifiche iniziali (CEI 64-8 Cap. 61): esame a vista e prove (continuità PE, isolamento, RCD, resistenza terra, impedenza anello di guasto), con registrazione dei risultati.
+'''
+
+aspetti_normativi_estesi = st.text_area(
+    "2.1 Aspetti normativi e prescrizioni specifiche (opzionale)",
+    value=(default_aspetti if usa_template_esteso else ""),
+    height=180,
+)
+
+relazione_estesa = st.text_area(
+    "Appendice A – Relazione tecnica estesa (opzionale)",
+    value=(default_relazione_estesa if usa_template_esteso else ""),
+    height=380,
+)
+
+
 dati_tecnici = f"""Tipo sistema di distribuzione: {sistema}. Tensione nominale: {tensione}. Potenza disponibile/contrattuale: {potenza_disp_kw}.
 POD: {pod} – contatore ubicato in: {contatore_ubi}.
 Alimentazione: {alimentazione}. Potenza prevista/servita (stima): {potenza_prev_kw:.1f} kW (Ib indicativa ≈ {Ib:.1f} A a cosφ={cosphi:.2f}).
@@ -735,8 +809,11 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "progettista_nome": progettista_nome,
         "premessa": premessa,
         "norme": norme,
+        "aspetti_normativi_estesi": aspetti_normativi_estesi,
         "criterio_progetto": criterio_testo,
         "dati_progettazione": dati_progettazione_txt,
+
+        "relazione_estesa": relazione_estesa,
 
         "dati_tecnici": dati_tecnici,
         "descrizione_impianto": descrizione_impianto,
