@@ -14,6 +14,7 @@ Nota: la cover riprende l'impostazione a tre riquadri del PDF campione.
 
 from io import BytesIO
 from typing import Dict, List, Any, Optional
+import re
 
 from xml.sax.saxutils import escape
 
@@ -34,25 +35,12 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
+from template_sections import TEMPLATE_SECTIONS
+
 
 def _p(text: str, style):
     safe = escape(text or "").replace("\n", "<br/>")
     return Paragraph(safe, style)
-
-
-def _split_paragraphs(text: str) -> List[str]:
-    """Split a block of text into meaningful paragraphs.
-
-    We keep the PDF readable and avoid manual <br/> everywhere:
-    - split on blank lines
-    - keep bullet lists inside their paragraph
-    - drop empty chunks
-    """
-    if not text:
-        return []
-    t = str(text).replace("\r\n", "\n").replace("\r", "\n")
-    chunks = [c.strip() for c in t.split("\n\n")]
-    return [c for c in chunks if c]
 
 
 def _meaningful(value: Any) -> bool:
@@ -77,164 +65,40 @@ def _meaningful(value: Any) -> bool:
     if "xxxx" in low:
         return False
     return True
+def _split_paragraphs(text: str) -> List[str]:
+    """Split long template texts into readable paragraphs."""
+    if not text:
+        return []
+    t = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    chunks = [c.strip() for c in t.split("\n\n")]
+    return [c for c in chunks if c]
 
 
 def _first_non_empty(values: List[Any], default: str = "") -> str:
-    """Return first meaningful value from list, else default.
-
-    Keeps the document professional while ensuring that unanswered fields
-    do not leak placeholders into the final PDF.
-    """
     for v in values:
         if _meaningful(v):
             return str(v).strip()
     return default
 
 
+def _ensure_table_styles(styles):
+    if "TableHeader" not in styles:
+        styles.add(ParagraphStyle(name="TableHeader", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10))
+    if "TableCell" not in styles:
+        styles.add(ParagraphStyle(name="TableCell", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=10))
+    return styles
 
-def _std_premessa(data: Dict[str, Any]) -> str:
-    comm = _first_non_empty([data.get("committente_nome"), "Committenza"])
-    ogg = _first_non_empty([data.get("oggetto_intervento"), "l’intervento in oggetto"])
-    luogo = _first_non_empty([data.get("impianto_indirizzo"), data.get("luogo"), "sito di intervento"])
-    data_conf = _first_non_empty([data.get("data_conferma"), data.get("data_doc"), ""])
-    fonte = _first_non_empty([data.get("fonte_dati"), "Committente"])
-    # testo coerente con un report DiCo: tecnico + perimetro + responsabilità dati
-    return (
-        f"La presente Relazione Tecnico-Specialistica è redatta nell’ambito dell’incarico conferito dalla {comm} "
-        f"e riguarda {ogg} presso {luogo}.\n\n"
-        "<b>FINALITÀ E PERIMETRO</b>\n"
-        "Il documento ha lo scopo di:\n"
-        "• descrivere l’impianto e le opere eseguite/da eseguire, con indicazione dei confini dell’intervento;\n"
-        "• richiamare i riferimenti legislativi e normativi applicabili;\n"
-        "• esplicitare i criteri di progettazione e le verifiche di coordinamento essenziali (correnti, cadute di tensione, protezioni), "
-        "in coerenza con la regola dell’arte.\n\n"
-        "<b>VALENZA DOCUMENTALE</b>\n"
-        "La presente Relazione costituisce documento tecnico di progetto e di supporto alla documentazione di conformità ai sensi del D.M. 37/2008; "
-        "non sostituisce la Dichiarazione di Conformità (DiCo) né i relativi allegati obbligatori, che restano di competenza dell’Impresa installatrice.\n\n"
-        "<b>RESPONSABILITÀ E DATI DI INGRESSO</b>\n"
-        f"Le informazioni relative alla fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), "
-        f"destinazione d’uso e condizioni di esercizio sono state fornite da {fonte} e/o rilevate in sito"
-        + (f" e/o confermate in data {data_conf}." if _meaningful(data_conf) else ".")
-        + " Eventuali porzioni preesistenti non oggetto di intervento e le interfacce con impianti/parti terze sono indicate nel paragrafo “Confini dell’intervento”.\n\n"
-        "<b>REQUISITI MATERIALI E CONSEGNA</b>\n"
-        "Materiali e componenti devono essere conformi alle norme applicabili, provvisti di marcatura CE e, ove disponibile, marchio di conformità volontario "
-        "(es. IMQ) o equivalente. Alla consegna l’impianto deve risultare conforme alla regola dell’arte e alle prescrizioni eventualmente impartite da Enti/Autorità competenti."
-    )
 
-def _std_norme(data: Dict[str, Any]) -> str:
-    enti = data.get("prescrizioni_enti")
-    enti_txt = enti if _meaningful(enti) else "Nessuna / Non applicabile"
-    return (
-        "Si riportano i principali riferimenti legislativi e normativi applicabili (elenco non esaustivo):\n"
-        "• D.M. 22/01/2008 n. 37.\n"
-        "• Legge 01/03/1968 n. 186.\n"
-        "• D.Lgs. 09/04/2008 n. 81 e s.m.i.\n"
-        "• D.P.R. 22/10/2001 n. 462 (ove applicabile).\n"
-        "• Norme CEI applicabili (in particolare CEI 64-8, CEI 64-14, CEI EN 61439, CEI EN 60529; e, se pertinenti, CEI 81-10, CEI 0-10, CEI 0-21/0-16).\n"
-        "• Regolamento Prodotti da Costruzione (UE) 305/2011 (CPR) e norme CEI-UNEL per i cavi (ove applicabile).\n"
-        f"Eventuali ulteriori prescrizioni di Enti/Autorità locali: {enti_txt}."
-    )
-
-def _std_criteri_progetto(data: Dict[str, Any]) -> str:
-    # Testo tecnico completo, coerente con relazione DiCo. I campi specifici (tipo cavo, posa, ecc.) sono riportati nelle tabelle di sintesi.
-    return (
-        "Tutti i materiali e le apparecchiature utilizzati devono essere di alta qualità, prodotti da aziende affidabili, ben lavorati e adatti all'uso previsto, "
-        "resistendo a sollecitazioni meccaniche, corrosione, calore, umidità e acque meteoriche (per installazione all’esterno). Devono garantire lunga durata, "
-        "facilità di ispezione e manutenzione.\n\n"
-        "È obbligatorio l'uso di componenti con marcatura CE e, se disponibile, marchio IMQ o equivalente europeo. I componenti senza marcatura CE devono avere "
-        "una dichiarazione di conformità del costruttore ai requisiti di sicurezza delle normative CEI, UNI o IEC.\n\n"
-        "<b>3.1 Dimensionamento delle linee</b>\n"
-        "Le linee elettriche sono calcolate mediante l’utilizzo dei seguenti criteri progettuali:\n"
-        "• La corrente di impiego (Ib) è calcolata considerando la potenza nominale delle apparecchiature elettriche.\n"
-        "• La corrente nominale della protezione (In) è considerata come la corrente che l’interruttore può sopportare per un tempo indefinito senza danni.\n"
-        "• La portata del cavo (Iz) è valutata in funzione delle condizioni di posa e delle tabelle applicabili.\n\n"
-        "<b>3.2 Sezione cavo in funzione di Ib</b>\n"
-        "Nota la potenza assorbita dall’utenza, la corrente d’impiego (Ib) può essere calcolata come:\n"
-        "Ib = (Ku · P) / (k · Vn · cosφ)\n"
-        "dove k = 1 (monofase) o k = √3 (trifase). Determinata Ib, si dimensiona il cavo con portata Iz > Ib.\n\n"
-        "<b>3.3 Caduta di tensione</b>\n"
-        "La caduta di tensione percentuale complessiva non deve superare 4.0% (rif. CEI 64-8 art. 525), salvo diverse esigenze di progetto.\n\n"
-        "<b>3.4 Cavi, posa e identificazione</b>\n"
-        "I cavi utilizzati sono conformi al Regolamento UE 305/2011 (CPR), alle norme costruttive CEI e all’unificazione UNEL. "
-        "I conduttori sono identificati secondo CEI-UNEL 00722 e 00712 (PE giallo/verde; neutro blu; fasi marrone/nero/grigio). "
-        "Le modalità di posa e gli attraversamenti di pareti/solai devono mantenere, ove necessario, le prestazioni richieste (es. compartimentazioni).\n\n"
-        "<b>3.5 Protezioni</b>\n"
-        "La protezione dalle sovracorrenti è assicurata da interruttori automatici dimensionati e coordinati con le linee. "
-        "Devono interrompere sovraccarichi e cortocircuiti prima di danni all’isolamento e avere potere di interruzione adeguato (PdI/Icu > Icc presunta).\n\n"
-        "<b>3.6 Contatti indiretti</b>\n"
-        "La protezione contro i contatti indiretti è realizzata mediante interruzione automatica dell’alimentazione (TT/TN) e/o componenti a doppio isolamento. "
-        "Per sistemi TT si verifica il coordinamento Idn ≤ UL / Rt (UL = 50 V in ambienti ordinari).\n\n"
-        "<b>3.7 Contatti diretti</b>\n"
-        "La protezione contro i contatti diretti è assicurata tramite isolamento delle parti attive e/o involucri/barriere con grado di protezione adeguato (minimo IPXXB).\n\n"
-        "<b>3.8 Potere di interruzione</b>\n"
-        "Icc-max < PdI (Icu) del dispositivo di protezione (rif. CEI EN 60947-2).\n\n"
-        "<b>3.9 Quadri elettrici</b>\n"
-        "Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cablaggio interno con conduttori idonei e dimensionato per corrente nominale e cortocircuito nel punto di installazione."
-    )
-def _std_manutenzione() -> str:
-    return (
-        "Le attività di esercizio e manutenzione devono essere svolte da personale qualificato e autorizzato, in sicurezza e nel rispetto delle istruzioni "
-        "dei costruttori e delle norme tecniche applicabili (es. CEI 0-10 / CEI 11-27, ove pertinenti).\n\n"
-        "<b>PIANO DI MANUTENZIONE (minimo consigliato)</b>\n"
-        "• Quadri elettrici: ispezione visiva, pulizia, verifica serraggi morsetti, integrità targhe/etichette e dispositivi di protezione;\n"
-        "• Dispositivi differenziali: prova periodica con tasto “T” e verifiche strumentali (Idn/tempo) secondo periodicità e criticità del sito;\n"
-        "• Conduttori e condutture: verifica integrità isolamento, fissaggi, protezioni meccaniche e segregazioni;\n"
-        "• Collegamenti equipotenziali e PE: controllo continuità e integrità;\n"
-        "• Comandi/emergenze (se presenti): prova funzionale e ripristino, verifica segnalazioni e cartellonistica;\n"
-        "• Apparecchiature specifiche (es. wallbox/utenze dedicate): ispezione cavi e connettori, prova funzionale e aggiornamenti firmware se previsti dal costruttore.\n\n"
-        "È raccomandata la tenuta di un registro manutenzione con data, attività eseguite, esito e nominativo dell’operatore."
-    )
-
-def _std_dati_tecnici_base(data: Dict[str, Any]) -> str:
-    sist = _first_non_empty([data.get("sistema_distribuzione"), "TT"])
-    tf = _first_non_empty([data.get("tensione_freq"), "230/400 V - 50 Hz"])
-    pot = data.get("potenza_disponibile")
-    pod = data.get("pod")
-    cont = data.get("contatore_ubicazione")
-    alim = data.get("alimentazione")
-    amb = data.get("ambienti") or []
-    amb_txt = ", ".join([a for a in amb if _meaningful(a)])
-    parts = []
-    parts.append(f"Tipo sistema di distribuzione: {sist}.")
-    parts.append(f"Tensione nominale: {tf}.")
-    if _meaningful(pot):
-        parts.append(f"Potenza disponibile/contrattuale: {pot}.")
-    if _meaningful(pod):
-        parts.append(f"POD: {pod}.")
-    if _meaningful(cont):
-        parts.append(f"Contatore ubicato in: {cont}.")
-    if _meaningful(alim):
-        parts.append(f"Alimentazione: {alim}.")
-    if _meaningful(amb_txt):
-        parts.append(f"Ambientazioni particolari (se presenti): {amb_txt}.")
-    return " ".join(parts)
-
-def _std_descrizione_impianto(data: Dict[str, Any]) -> str:
-    luogo = _first_non_empty([data.get("impianto_indirizzo"), data.get("luogo"), ""])
-    pod = data.get("pod")
-    cont = data.get("contatore_ubicazione")
-    sist = _first_non_empty([data.get("sistema_distribuzione"), "TT"])
-    tf = _first_non_empty([data.get("tensione_freq"), "230/400 V - 50 Hz"])
-    pot = data.get("potenza_disponibile")
-    s = []
-    if _meaningful(luogo):
-        s.append(f"Il sito di intervento è ubicato in {luogo}.")
-    if _meaningful(pod) or _meaningful(cont):
-        s.append("L’impianto è alimentato in bassa tensione dal punto di consegna del Distributore"
-                 + (f" (POD: {pod})" if _meaningful(pod) else "")
-                 + (f", tramite contatore/quadretto di misura ubicato in {cont}" if _meaningful(cont) else "")
-                 + ".")
-    s.append(f"Tipo sistema di distribuzione: {sist}. Tensione nominale: {tf}."
-             + (f" Potenza disponibile/contrattuale: {pot}." if _meaningful(pot) else ""))
-    s.append("La ripartizione e distribuzione interna avviene mediante linee in cavo conforme CEI/UNEL e componenti marcati CE "
-             "(e, ove disponibile, IMQ o equivalente). Le condutture sono posate in tubazioni/canalizzazioni idonee e con protezione meccanica adeguata; "
-             "i circuiti risultano identificati e separati per destinazione d’uso, privilegiando la manutenibilità.")
-    s.append("Le opere impiantistiche previste comprendono, in funzione dell’intervento, la realizzazione e/o modifica di linee di alimentazione dedicate, "
-             "installazione di punti di utilizzo, posa di tubazioni/canalizzazioni, installazione o adeguamento di quadri elettrici, apparecchi di protezione e comando, "
-             "morsetterie e accessori, nonché collegamenti al sistema di protezione (PE) e ai collegamenti equipotenziali.")
-    s.append("I conduttori sono identificati secondo codifica colori (PE giallo-verde, N blu, fasi marrone/nero/grigio) e marcatura/etichettatura dove previsto. "
-             "I dispositivi di protezione sono coordinati con le linee e con il sistema di distribuzione (TT/TN) in modo coerente con le norme tecniche applicabili.")
-    return " ".join(s)
+def _table_style():
+    return TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ])
 
 
 
@@ -258,28 +122,6 @@ def _kv_table(rows: List[list], col_widths):
     return tbl
 
 
-def _table_style(header_rows: int = 1) -> TableStyle:
-    """Stile tabellare standard.
-
-    Usato in varie sezioni (quadri, linee, checklist, verifiche) per avere
-    un output coerente e leggibile.
-    """
-    hr = max(1, int(header_rows or 1))
-    return TableStyle(
-        [
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("LEFTPADDING", (0, 0), (-1, -1), 4),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-            ("TOPPADDING", (0, 0), (-1, -1), 3),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-            ("BACKGROUND", (0, 0), (-1, hr - 1), colors.whitesmoke),
-            ("FONTNAME", (0, 0), (-1, hr - 1), "Helvetica-Bold"),
-        ]
-    )
-
-
 def _first_nonempty_line(text: str) -> str:
     for ln in (text or "").splitlines():
         ln = ln.strip()
@@ -289,25 +131,24 @@ def _first_nonempty_line(text: str) -> str:
 
 
 class _NumberedCanvas(canvas.Canvas):
-    """Canvas che consente 'Pagina X di Y' senza duplicare le pagine (replay a fine build)."""
+    """Canvas che consente 'Pagina X di Y'."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states: List[dict] = []
 
     def showPage(self):
-        # Salva lo stato della pagina corrente e avvia una nuova pagina
         self._saved_page_states.append(dict(self.__dict__))
-        self._startPage()
+        super().showPage()
 
     def save(self):
-        # Replay delle pagine salvate con numerazione completa
-        page_count = len(self._saved_page_states)
+        page_count = len(self._saved_page_states) + 1
         for state in self._saved_page_states:
             self.__dict__.update(state)
             self._draw_page_number(page_count)
-            canvas.Canvas.showPage(self)
-        canvas.Canvas.save(self)
+            super().showPage()
+        self._draw_page_number(page_count)
+        super().save()
 
     def _draw_page_number(self, page_count: int):
         self.saveState()
@@ -703,258 +544,149 @@ def _revision_table(data: Dict[str, Any], styles) -> Optional[Table]:
 
 
 
+def _apply_dynamics_to_template(num: int, text: str, data: Dict[str, Any]) -> str:
+    """Optionally replace default numeric values with user-provided ones, keeping wording."""
+    if not text:
+        return ""
+    out = text
+    if num == 11:
+        dist = _first_non_empty([data.get("distanza_pod_m"), data.get("distanza_m")], "")
+        if _meaningful(dist):
+            out = re.sub(r"circa\s+\d+\s+metri", f"circa {dist} metri", out)
+            out = re.sub(r"dista\s+\d+\s+metri", f"dista {dist} metri", out)
+    if num == 15:
+        icc3 = _first_non_empty([data.get("icc_trifase_ka")], "")
+        icc1 = _first_non_empty([data.get("icc_mono_ka"), data.get("icc_monofase_ka")], "")
+        if _meaningful(icc3):
+            out = re.sub(r"pari\s+a\s+\d+\s*kA", f"pari a {icc3} kA", out, count=1)
+        if _meaningful(icc1):
+            # replace second occurrence
+            parts = out.split("kA")
+            if len(parts) > 2:
+                # crude but effective: replace last numeric before 'kA' in second statement
+                out = re.sub(r"pari\s+a\s+\d+\s*kA", f"pari a {icc1} kA", out, count=1, flags=re.I)
+    if num == 16:
+        pot = _first_non_empty([data.get("potenza_impegnata_kw"), data.get("potenza_kw"), data.get("potenza_disp"), data.get("potenza_disponibile")], "")
+        if _meaningful(pot):
+            out = re.sub(r"\b\d+(?:[\.,]\d+)?\s*kW\b", f"{pot} kW", out)
+    return out
+
 
 def _add_progetto_elettrico_relazione_tecnica(story, data, styles, h2, h3, body):
-    """Integra nel corpo del report i paragrafi 9..58 del template (stile relazione tecnica)."""
+    """Insert the full 9..58 technical template (from DOCX), integrated in the report."""
+    th = styles["TableHeader"]
+    tc = styles["TableCell"]
 
-    def fmt_sentence(tpl: str, **kw) -> str:
-        # If any placeholder value is missing/empty -> omit the whole sentence.
-        for v in kw.values():
-            if v is None:
-                return ""
-            if isinstance(v, str) and not v.strip():
-                return ""
-        return tpl.format(**kw).strip()
-
-    def add_par(num: int, title: str, text: str):
-        title_line = f"{num}  {title}" if num else title
-        story.append(_p(title_line.upper(), h3))
-        if _meaningful(text):
-            for para in _split_paragraphs(text):
-                if _meaningful(para):
-                    story.append(_p(para, body))
-        story.append(Spacer(1, 8))
-
-    # Header section
     story.append(_p("PROGETTO ELETTRICO – RELAZIONE TECNICA", h2))
     story.append(Spacer(1, 6))
 
-    # Pull common dynamic values (optional)
-    distanza_m = data.get("distanza_pod_m") or data.get("distanza_m") or ""
-    potenza_kw = data.get("potenza_impegnata_kw") or data.get("potenza_kw") or ""
-    icc_trifase_ka = data.get("icc_trifase_ka") or ""
-    icc_mono_ka = data.get("icc_mono_ka") or ""
+    def add_section(num: int, title: str, text: str):
+        story.append(_p(f"{num}  {title}".upper(), h3))
+        txt = _apply_dynamics_to_template(num, text, data)
+        for para in _split_paragraphs(txt):
+            if _meaningful(para):
+                story.append(_p(para, body))
+        story.append(Spacer(1, 8))
 
-    # 9..58 (contenuti base dal template, con innesti dinamici se disponibili)
-    add_par(9, "Area di intervento e tipo di attività.",
-        "L’area di intervento consiste nell’installazione di tipo Outdoor (esterno) di punto di ricarica.")
+        # Inline integrations with existing calculations/tables
+        if num == 18:
+            linee = data.get("linee", []) or []
+            if isinstance(linee, list) and linee:
+                tdata = [[_p("Circuito/Linea", th), _p("Destinazione/Utilizzo", th), _p("Posa / L (m)", th), _p("Cavo (tipo/sezione)", th),
+                          _p("Protezione (MT/MTD)", th), _p("Differenziale (tipo/Idn)", th), _p("ΔV %", th), _p("Esito", th)]]
+                for ln in linee:
+                    if not isinstance(ln, dict):
+                        continue
+                    posa = (ln.get("Posa", "") or "").strip()
+                    ll = ln.get("L_m", "") or ln.get("Lunghezza_m", "") or ""
+                    posa_len = f"{posa}\n{ll}" if _meaningful(posa) else f"{ll}"
+                    tdata.append([
+                        _p(str(ln.get("Linea", "") or ln.get("Circuito/Linea", "")), tc),
+                        _p(str(ln.get("Uso", "") or ln.get("Destinazione/Utilizzo", "")), tc),
+                        _p(str(posa_len), tc),
+                        _p(str(ln.get("Cavo", "") or ln.get("Cavo (tipo/sezione)", "")), tc),
+                        _p(str(ln.get("Protezione", "") or ln.get("Protezione (MT/MTD)", "")), tc),
+                        _p(str(ln.get("Diff", "") or ln.get("Differenziale (tipo/Idn)", "")), tc),
+                        _p(str(ln.get("DV_perc", "") or ln.get("ΔV %", "")), tc),
+                        _p(str(ln.get("Esito", "") or ln.get("Esito ΔV", "")), tc),
+                    ])
+                if len(tdata) > 1:
+                    colw = [16*mm, 30*mm, 24*mm, 32*mm, 26*mm, 26*mm, 10*mm, 10*mm]
+                    tbl = Table(tdata, colWidths=colw, repeatRows=1, hAlign="LEFT")
+                    tbl.setStyle(_table_style())
+                    story.append(tbl)
+                    story.append(Spacer(1, 8))
 
-    add_par(10, "Tipo di impianto.",
-        "Trattasi di impianto elettrico, utilizzatore di Ia categoria (50 V < Vn < 1000 V), con alimentazione da rete privata di bassa tensione tramite un unico punto di consegna (POD) dell’Ente Distributore.")
+        if num == 38:
+            # integrate quadri table
+            quadri = data.get("quadri", []) or []
+            if isinstance(quadri, list) and quadri:
+                tdata = [[_p("Quadro", th), _p("Ubicazione", th), _p("IP", th),
+                          _p("Interruttore generale (tipo/In)", th), _p("Differenziale generale (tipo/Idn)", th)]]
+                for q in quadri:
+                    if not isinstance(q, dict):
+                        continue
+                    generale = q.get("Generale") or q.get("Interruttore generale (tipo/In)") or q.get("Interruttore generale") or ""
+                    diff = q.get("Diff") or q.get("Differenziale generale (tipo/Idn)") or q.get("Differenziale generale") or ""
+                    if not _meaningful(str(q.get("Quadro","")) + str(generale) + str(diff)):
+                        continue
+                    tdata.append([
+                        _p(str(q.get("Quadro", "")), tc),
+                        _p(str(q.get("Ubicazione", "")), tc),
+                        _p(str(q.get("IP", "")), tc),
+                        _p(str(generale), tc),
+                        _p(str(diff), tc),
+                    ])
+                if len(tdata) > 1:
+                    tbl = Table(tdata, colWidths=[16*mm, 40*mm, 12*mm, 52*mm, 54*mm], repeatRows=1, hAlign="LEFT")
+                    tbl.setStyle(_table_style())
+                    story.append(tbl)
+                    story.append(Spacer(1, 8))
 
-    p11 = []
-    s = fmt_sentence("Il punto di origine dell’impianto dista circa {distanza_m} metri dal punto di consegna da parte dell’Ente Distributore.", distanza_m=distanza_m)
-    if s:
-        p11.append(s)
-    p11.append("Per maggiori dettagli si rimanda ai disegni e agli elaborati tecnici allegati a questa relazione.")
-    add_par(11, "Punto di origine.", "\n\n".join(p11))
+        if num == 40:
+            evse = data.get("evse", []) or data.get("evse_tabella", []) or data.get("evse_list", [])
+            if isinstance(evse, list) and evse:
+                tdata = [[_p("Marca/Modello", th), _p("Potenza", th), _p("Connettore", th),
+                          _p("Modo", th), _p("IP/IK", th), _p("RCD/RDC", th), _p("Note", th)]]
+                for r in evse:
+                    if not isinstance(r, dict):
+                        continue
+                    marca = r.get("Marca/Modello") or r.get("MarcaModello") or r.get("Marca") or ""
+                    pot = r.get("P (kW)") or r.get("Potenza") or r.get("Potenza_kW") or ""
+                    if not _meaningful(str(marca) + str(pot)):
+                        continue
+                    tdata.append([
+                        _p(str(marca), tc),
+                        _p(str(pot), tc),
+                        _p(str(r.get("Connettore", "")), tc),
+                        _p(str(r.get("Modo", "")), tc),
+                        _p(str(r.get("IP/IK", "") or r.get("IPIK", "")), tc),
+                        _p(str(r.get("RCD/RDC", "") or r.get("RCD", "")), tc),
+                        _p(str(r.get("Note", "")), tc),
+                    ])
+                if len(tdata) > 1:
+                    tbl = Table(tdata, colWidths=[48*mm, 16*mm, 18*mm, 10*mm, 14*mm, 18*mm, 56*mm], repeatRows=1, hAlign="LEFT")
+                    tbl.setStyle(_table_style())
+                    story.append(tbl)
+                    story.append(Spacer(1, 8))
 
-    add_par(12, "Sistema di fornitura.",
-        "La fornitura sarà di tipo a corrente alternata monofase in bassa tensione 230 V, a frequenza nominale 50 Hz.")
-
-    add_par(13, "Tensione nominale.",
-        "Gli impianti elettrici presenti avranno le seguenti tensioni:\n\n• Circuiti elettrici di tipo monofase a 230 V;")
-
-    add_par(14, "Sistema di distribuzione.",
-        "Si tratta di un impianto di tipo TT, con impianto di terra comune a tutte le sezioni dell’impianto.")
-
-    p15 = []
-    s15 = fmt_sentence("Per la fornitura delle parti comuni, la corrente di corto circuito presunta per guasto trifase nel punto di fornitura è pari a {icc_trifase_ka} kA (salvo diversa indicazione del Distributore), mentre per guasto monofase è pari a {icc_mono_ka} kA.",
-                       icc_trifase_ka=icc_trifase_ka, icc_mono_ka=icc_mono_ka)
-    if s15:
-        p15.append(s15)
-    p15.append("In ogni caso il dispositivo generale avrà un potere d’interruzione nominale monofase 230 V maggiore della corrente di corto circuito monofase presunta nel punto di installazione.")
-    add_par(15, "Corrente di corto circuito.", "\n\n".join(p15))
-
-    p16 = []
-    s16 = fmt_sentence("La potenza impegnata tiene conto dei fattori di contemporaneità e di utilizzazione delle utenze presenti ed è pari a quella contrattualmente richiesta all’Ente Fornitore: {potenza_kw} kW.", potenza_kw=potenza_kw)
-    if s16:
-        p16.append(s16)
-    if not p16:
-        p16.append("La potenza impegnata tiene conto dei fattori di contemporaneità e di utilizzazione delle utenze presenti ed è pari a quella contrattualmente richiesta all’Ente Fornitore.")
-    add_par(16, "Potenza impegnata.", "\n\n".join(p16))
-
-    add_par(17, "Caduta di tensione.",
-        "Per gli impianti di 1ª categoria la tensione misurata tra il quadro principale immediatamente a valle del punto di consegna e un qualsiasi punto dell’impianto utilizzatore, quando sono inseriti e funzionanti al rispettivo carico nominale, non deve superare il 4% (a fondo linea).")
-
-    add_par(18, "Correnti di impiego e portate dei cavi.",
-        "Ai fini della determinazione delle correnti d’impiego, le linee asservite alle utenze sono dimensionate per il massimo carico previsto. La portata delle condutture è ricavata dalle tabelle CEI-UNEL vigenti ed applicando i coefficienti di riduzione relativi alle condizioni di posa ed alle temperature ambiente.")
-
-    # 19..23 (sezioni / colori)
-    add_par(19, "Sezione minima dei conduttori di fase.",
-        "Le sezioni dovranno essere tali da soddisfare le prescrizioni delle norme CEI e delle disposizioni di legge vigenti in materia antinfortunistica.")
-
-    add_par(20, "Sezione minima dei conduttori di neutro.",
-        "Per i conduttori di neutro la sezione dovrà essere la stessa del conduttore di fase nei circuiti monofase a due fili e polifase quando la sezione del conduttore di fase sia inferiore o uguale a 16 mm² se in rame e 25 mm² se in alluminio.")
-
-    add_par(21, "Sezione minima dei conduttori di protezione (PE).",
-        "Si dovranno rispettare le sezioni precisate dalla tabella 54F della norma CEI 64-8 (art. 543.1.2).")
-
-    add_par(22, "Sezione minima del conduttore di terra.",
-        "Con riferimento all’art. 542.3 ed alla tabella 54A della norma CEI 64-8, le sezioni minime dei conduttori di terra dipendono dalla protezione meccanica e dalla protezione contro la corrosione.")
-
-    add_par(23, "Colori di identificazione.",
-        "In accordo con art. 514.31 della CEI 64-8/5 e della CEI 16-4 i colori da utilizzare per l'identificazione dei vari conduttori sono: fase (marrone/grigio/nero), neutro (blu chiaro), protezione (giallo-verde).")
-
-    # 24..35 (sezionamento/protezioni)
-    add_par(24, "Sezionamento e comando.",
-        "Di seguito si riportano le caratteristiche delle apparecchiature per il comando ed il sezionamento dei circuiti elettrici.")
-
-    add_par(25, "Sezionamento.",
-        "Ogni circuito dovrà poter essere sezionato dall’alimentazione su tutti i conduttori attivi.")
-
-    add_par(26, "Interruzione per manutenzione non elettrica.",
-        "Quando la manutenzione non elettrica può comportare rischi per le persone, si dovranno provvedere dispositivi di interruzione dell’alimentazione e idonei accorgimenti contro la riattivazione accidentale.")
-
-    add_par(27, "Comando funzionale.",
-        "Gli apparecchi di comando funzionale non dovranno necessariamente interrompere tutti i conduttori attivi di un circuito. Un dispositivo di comando unipolare non dovrà essere inserito sul conduttore di neutro.")
-
-    add_par(28, "Protezione contro i contatti diretti.",
-        "Le parti attive dovranno essere segregate mediante posa entro involucri o dietro barriere, assicurando almeno un grado di protezione IPXXB, come da CEI 64-8 (art. 412).")
-
-    add_par(29, "Protezione contro i contatti indiretti – sistema TT.",
-        "Per la protezione dai contatti indiretti dovrà essere garantito il coordinamento dell’impianto di terra con i dispositivi di protezione in modo da assicurare l'interruzione automatica dell'alimentazione nei tempi richiesti (CEI 64-8).")
-
-    add_par(30, "Protezione da parti in tensione poste all’interno dell’involucro.",
-        "Le parti attive poste entro involucri o barriere devono assicurare almeno il grado di protezione IPXXB (IP20).")
-
-    add_par(31, "Componenti elettrici in classe II o con isolamento equivalente.",
-        "La protezione da contatti indiretti può essere realizzata anche con l'utilizzo di componenti in classe II, secondo le prescrizioni normative applicabili.")
-
-    add_par(32, "Protezione delle condutture contro le sovracorrenti.",
-        "Di seguito si riportano le prescrizioni relativamente alle protezioni delle condutture.")
-
-    add_par(33, "Protezione contro i sovraccarichi.",
-        "Per proteggere le linee contro i sovraccarichi saranno soddisfatte le condizioni Ib ≤ In ≤ Iz e If ≤ 1,45 Iz (CEI 64-8).")
-
-    add_par(34, "Protezione contro i corto circuiti.",
-        "Per la protezione da corto circuito, affinché la temperatura dei conduttori non superi il valore massimo ammissibile, si dovrà tener conto della relazione (I²·t) ≤ K²·S².")
-
-    add_par(35, "Selettività.",
-        "Gli impianti saranno realizzati in modo tale da assicurare la massima selettività possibile, onde evitare che in caso di guasto a valle intervengano anche le protezioni generali a monte.")
-
-    add_par(36, "Schemi e documentazione.",
-        "Saranno forniti al manutentore i documenti di disposizione topografica dell’impianto, unitamente a rapporti di verifica, disegni, schemi e relative modifiche, così come istruzioni per l’esercizio e la manutenzione.")
-
-    add_par(37, "Descrizione degli impianti.",
-        "Relativamente a quanto descritto in questo capitolo, per maggiori dettagli si rimanda alla documentazione allegata.")
-
-    # 38..40: integrate existing tables if present
-    story.append(_p("38  QUADRI ELETTRICI.", h3))
-    story.append(_p("Tutti i quadri e i dispositivi di protezione scelti dovranno essere di primaria marca e rispondere alle norme applicabili.", body))
-    story.append(Spacer(1, 6))
-    quadri = data.get("quadri", [])
-    if quadri:
-        story.append(_p("Sintesi quadri (da calcolo/progetto)", styles["Italic"]))
-        tdata = [[_p("Quadro", styles["TableHeader"]), _p("Ubicazione", styles["TableHeader"]), _p("IP", styles["TableHeader"]),
-                  _p("Interruttore generale", styles["TableHeader"]), _p("Differenziale generale", styles["TableHeader"]) ]]
-        for q in quadri:
-            tdata.append([_p(str(q.get("Quadro","")), styles["TableCell"]),
-                          _p(str(q.get("Ubicazione","")), styles["TableCell"]),
-                          _p(str(q.get("IP","")), styles["TableCell"]),
-                          _p(str(q.get("Generale","")), styles["TableCell"]),
-                          _p(str(q.get("Diff","")), styles["TableCell"])])
-        tbl = Table(tdata, colWidths=[18*mm, 48*mm, 12*mm, 54*mm, 54*mm], repeatRows=1, hAlign="LEFT")
-        tbl.setStyle(_table_style())
-        story.append(tbl)
-    story.append(Spacer(1, 8))
-
-    add_par(39, "Distribuzione principale.",
-        "Le condutture della distribuzione saranno unicamente cavi unipolari tipo FG16R16/FG16M16 per sezioni superiori a 25 mm²; per sezioni inferiori è ammesso l’uso di cavi multipolari del tipo FG16(O)R16 o FRG17.")
-
-    # Colonnina / EVSE details
-    story.append(_p("40  COLONNINA.", h3))
-    story.append(_p("La stazione di ricarica è classificabile come “Alimentazione di veicoli elettrici” (CEI 64-8 Sez. 722).", body))
-    evse = data.get("evse", []) or data.get("evse_tabella", [])
-    if evse:
-        story.append(Spacer(1, 6))
-        story.append(_p("Dati stazione di ricarica (EVSE)", styles["Italic"]))
-        tdata = [[_p("Marca/Modello", styles["TableHeader"]), _p("Potenza", styles["TableHeader"]), _p("Connettore", styles["TableHeader"]),
-                  _p("Modo", styles["TableHeader"]), _p("Note", styles["TableHeader"]) ]]
-        for r in evse:
-            if not isinstance(r, dict):
-                continue
-            if not _meaningful(str(r.get("MarcaModello","")) + str(r.get("Potenza",""))):
-                continue
-            tdata.append([
-                _p(str(r.get("MarcaModello","")), styles["TableCell"]),
-                _p(str(r.get("Potenza","")), styles["TableCell"]),
-                _p(str(r.get("Connettore","")), styles["TableCell"]),
-                _p(str(r.get("Modo","")), styles["TableCell"]),
-                _p(str(r.get("Note","")), styles["TableCell"]),
-            ])
-        if len(tdata) > 1:
-            tbl = Table(tdata, colWidths=[58*mm, 20*mm, 24*mm, 14*mm, 64*mm], repeatRows=1, hAlign="LEFT")
-            tbl.setStyle(_table_style())
-            story.append(tbl)
-    story.append(Spacer(1, 8))
-
-    # 41..58
-    add_par(41, "Verifiche.", "Per la valutazione delle verifiche da eseguire si rimanda alle prescrizioni della CEI 64-8 Cap. 61 e s.m.i.")
-
-    add_par(42, "Apparecchiature modulari.",
-        "Le apparecchiature installate nei quadri dovranno essere del tipo modulare e componibile con fissaggio su profilato normalizzato EN 50022, salvo eccezioni progettuali.")
-
-    add_par(43, "Interruttore generale.",
-        "Ogni quadro sarà dotato di un interruttore generale provvisto di comando manuale che consenta di interrompere simultaneamente tutti i conduttori attivi.")
-
-    add_par(44, "Interruttori magnetotermici modulari.",
-        "Gli interruttori automatici magnetotermici dovranno avere potere di interruzione adeguato alla corrente di corto circuito calcolata nel punto di installazione.")
-
-    add_par(45, "Interruttori differenziali modulari.",
-        "I dispositivi differenziali dovranno essere idonei al funzionamento in presenza di correnti alternate sinusoidali e immuni a scatti intempestivi dovuti a sovratensioni impulsive, secondo le specifiche di progetto.")
-
-    add_par(46, "Contattori di potenza e ausiliari.",
-        "Se necessari si farà uso di contattori accessoriabili rispondenti alle normative EN 60947-1 e 60947-4-1.")
-
-    add_par(47, "Accessori.",
-        "Qualora previsti, gli accessori (contatti ausiliari, interblocchi, temporizzatori, ecc.) dovranno essere scelti in coerenza con le esigenze di servizio e sicurezza.")
-
-    add_par(48, "Cavi.",
-        "I cavi impiegati risponderanno all'unificazione UNEL ed alle Norme costruttive stabilite dal Comitato Elettrotecnico Italiano; saranno del tipo non propagante l’incendio e a bassa emissione di fumi e gas corrosivi.")
-
-    add_par(49, "Colori dei cavi.",
-        "I conduttori dovranno essere contraddistinti dalla colorazione prevista dalle tabelle CEI-UNEL vigenti; il giallo-verde è riservato ai conduttori di protezione, il blu chiaro al neutro.")
-
-    add_par(50, "Cavi per la distribuzione dell’energia.",
-        "In accordo con la Tabella 52A della Norma CEI 64-8, si potranno utilizzare, ad esempio, H07V-K/FS17/FG17 (450/750 V) e FG16OR16/FG16R16 (0,6/1 kV) in funzione delle condizioni di posa.")
-
-    add_par(51, "Condutture.",
-        "Le condutture dovranno essere realizzate in modo da ridurre la probabilità di innesco e propagazione dell’incendio nelle condizioni di posa, secondo la Sezione 751 della Norma CEI 64-8.")
-
-    add_par(52, "Tubi e guaine.",
-        "Si potranno utilizzare tubi rigidi o flessibili autoestinguenti in PVC serie pesante conformi alle Norme CEI applicabili, completi di accessori di giunzione e derivazione.")
-
-    add_par(53, "Tipi di posa.",
-        "I tipi di posa delle condutture dovranno essere coerenti con le tabelle 52A/52B della CEI 64-8 e con i vincoli del sito.")
-
-    add_par(54, "Impianto trasmissione dati.",
-        "Qualora previsto, la rete dati si svilupperà in canalizzazioni dedicate, separata dagli impianti di energia, con cavi conformi alle specifiche del costruttore.")
-
-    add_par(55, "Verifiche.",
-        "Ad impianto ultimato si dovrà provvedere alle verifiche di collaudo: rispondenza alle disposizioni di legge, prescrizioni di progetto e norme CEI relative al tipo di impianto.")
-
-    add_par(56, "Verifiche iniziali.",
-        "Durante la realizzazione e prima della messa in servizio, l’impianto dovrà essere esaminato a vista e provato per verificare che le prescrizioni richiamate dalle norme applicabili siano state rispettate.")
-
-    add_par(57, "Esame a vista.",
-        "L’esame a vista accerta i difetti evidenti (involucri rotti, connessioni interrotte, mancanza di ancoraggi, ecc.) e, se necessario, approfondisce l’ispezione dei componenti elettrici.")
-
-    add_par(58, "Prove.",
-        "Le prove consistono nell’effettuazione di misure e operazioni con strumenti appropriati per accertare l’accordo con le Norme CEI (continuità PE/equipotenziali, funzionamento differenziali, resistenza di terra, impedenza anello di guasto, isolamento, ecc.).")
+    # Loop sections
+    for num in range(9, 59):
+        sec = TEMPLATE_SECTIONS.get(num)
+        if not sec:
+            continue
+        title = (sec.get("title") or "").strip()
+        text = (sec.get("text") or "").strip()
+        add_section(num, title, text)
 
 
 def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     buf = BytesIO()
     styles = getSampleStyleSheet()
-    # Table text styles (avoid KeyError if referenced later)
-    if "TableHeader" not in styles:
-        styles.add(ParagraphStyle("TableHeader", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9))
-    if "TableCell" not in styles:
-        styles.add(ParagraphStyle("TableCell", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9))
+    styles = _ensure_table_styles(styles)
 
-    th = styles["TableHeader"]
-    tc = styles["TableCell"]
+    th = ParagraphStyle("th", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
+    tc = ParagraphStyle("tc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
 
     h1 = ParagraphStyle("H1", parent=styles["Heading1"], spaceBefore=6, spaceAfter=8)
     h2 = ParagraphStyle("H2", parent=styles["Heading2"], spaceBefore=8, spaceAfter=6)
@@ -1023,39 +755,47 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
 
     # === CAPITOLI 1..6 ===
     story.append(_p("CAPITOLO 1 - PREMESSA", h2))
-    story.append(_p(_std_premessa(data), styles["BodyText"]))
+    story.append(_p(data.get("premessa", ""), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
     story.append(_p("CAPITOLO 2 - RIFERIMENTI LEGISLATIVI E NORMATIVI", h2))
-    story.append(_p(_std_norme(data), styles["BodyText"]))
-    story.append(Spacer(1, 10))
-    story.append(_p("CAPITOLO 3 - CRITERI DI PROGETTO DEGLI IMPIANTI", h2))
-    story.append(_p(_std_criteri_progetto(data), styles["BodyText"]))
+    story.append(_p(data.get("norme", ""), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
+    criterio = data.get("criterio_progetto", "")
+    if _meaningful(criterio):
+        story.append(_p("CAPITOLO 3 - CRITERI DI PROGETTO DEGLI IMPIANTI", h2))
+        story.append(_p(criterio, styles["BodyText"]))
+        story.append(Spacer(1, 10))
+
     story.append(_p("CAPITOLO 4 - SOLUZIONE PROGETTUALE ADOTTATA", h2))
-    story.append(_p("4.1 Dati tecnici di base", h3))
-    story.append(_p(_std_dati_tecnici_base(data), styles["BodyText"]))
-    story.append(Spacer(1, 8))
-    story.append(_p("4.2 Descrizione impianto e opere", h3))
-    story.append(_p(_std_descrizione_impianto(data), styles["BodyText"]))
-    story.append(Spacer(1, 8))
+
+    dati_tecnici = data.get("dati_tecnici", "")
+    if _meaningful(dati_tecnici):
+        story.append(_p("4.1 Dati tecnici di base", h3))
+        story.append(_p(dati_tecnici, styles["BodyText"]))
+        story.append(Spacer(1, 8))
+
+    descr = data.get("descrizione_impianto", "")
+    if _meaningful(descr):
+        story.append(_p("4.2 Descrizione impianto e opere", h3))
+        story.append(_p(descr, styles["BodyText"]))
+        story.append(Spacer(1, 8))
 
     conf = data.get("confini", "")
     if _meaningful(conf):
         story.append(_p("4.3 Confini dell’intervento e interfacce", h3))
         story.append(_p(conf, styles["BodyText"]))
         story.append(Spacer(1, 10))
-
     quadri = data.get("quadri", [])
-    if quadri:
+    if quadri and not use_template_sections:
         story.append(_p("4.4 Quadri elettrici e distribuzione (sintesi)", h3))
         tdata = [[
             _p("Quadro", th),
             _p("Ubicazione", th),
             _p("IP", th),
-            _p("Interruttore generale (tipo/In)", th),
-            _p("Differenziale generale (tipo/Idn)", th),
+            _p("Interruttore generale<br/>(tipo/In)", th),
+            _p("Differenziale generale<br/>(tipo/Idn)", th),
         ]]
         for q in quadri:
             tdata.append([
@@ -1077,12 +817,11 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         ]))
         story.append(tbl)
         story.append(Spacer(1, 10))
-
     linee = data.get("linee", [])
-    if linee:
+    if linee and not use_template_sections:
         story.append(_p("4.5 Elenco circuiti, cavi e protezioni (sintesi)", h3))
         tdata = [[
-            _p("Circuito/Linea", th),
+            _p("Circuito<br/>/Linea", th),
             _p("Destinazione<br/>/Utilizzo", th),
             _p("Posa<br/>L (m)", th),
             _p("Cavo<br/>(tipo/sezione)", th),
@@ -1119,10 +858,6 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(tbl)
         story.append(Spacer(1, 10))
 
-
-    # Sezione integrata dal template: PROGETTO ELETTRICO – RELAZIONE TECNICA (paragrafi 9..58)
-    _add_progetto_elettrico_relazione_tecnica(story, data, styles, h2, h3, styles["BodyText"]) 
-
     story.append(_p("CAPITOLO 5 - ULTERIORI INDICAZIONI", h2))
 
     sic = data.get("sicurezza", "")
@@ -1130,51 +865,23 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(_p("5.1 Protezione contro i contatti diretti e indiretti", h3))
         story.append(_p(sic, styles["BodyText"]))
         story.append(Spacer(1, 8))
-    story.append(_p("5.2 Verifiche, prove e collaudi", h3))
-    story.append(_p("Ad ultimazione dei lavori, l’impianto è sottoposto alle verifiche previste dalla CEI 64-8 (Parte 6) e dalla CEI 64-14, con esecuzione e registrazione delle prove strumentali pertinenti al sistema di distribuzione (TT/TN) e alla tipologia di impianto.", styles["BodyText"]))
-    vt = data.get("verifiche_tabella") or []
-    vt_rows = []
-    if isinstance(vt, list):
-        for r in vt:
-            if not isinstance(r, dict):
-                continue
-            prova = str(r.get("Prova", "")).strip()
-            esito = str(r.get("Esito", "")).strip()
-            strum = str(r.get("Strumento", "")).strip()
-            note = str(r.get("Note", "")).strip()
-            if _meaningful(esito) or _meaningful(strum) or _meaningful(note):
-                vt_rows.append([prova, esito, strum, note])
-    if vt_rows:
-        story.append(Spacer(1, 6))
-        story.append(_kv_table([["Prova", "Esito", "Strumento", "Note"]] + vt_rows, [70*mm, 30*mm, 40*mm, 40*mm]))
-    story.append(Spacer(1, 8))
-    story.append(_p("5.3 Esercizio, manutenzione e avvertenze", h3))
-    story.append(_p(_std_manutenzione(), styles["BodyText"]))
-    story.append(Spacer(1, 8))
-    # CAPITOLO 6 - ALLEGATI (sezione sempre in fondo; stampa solo contenuti presenti)
-    story.append(_p("CAPITOLO 6 - ALLEGATI", h2))
-    # 6.1 Checklist documentale
-    ck = data.get("checklist") or data.get("checklist_documentale") or []
-    ck_rows = []
-    if isinstance(ck, list):
-        for r in ck:
-            if not isinstance(r, dict):
-                continue
-            docu = str(r.get("Documento/Elaborato", r.get("Documento", ""))).strip()
-            stato = str(r.get("Stato", "")).strip()
-            note = str(r.get("Note", "")).strip()
-            if _meaningful(stato):
-                ck_rows.append([docu, stato, note])
-    if ck_rows:
-        story.append(_p("6.1 Checklist documentale", h3))
-        story.append(_kv_table([["Documento/Elaborato","Stato","Note"]] + ck_rows, [90*mm, 30*mm, 50*mm]))
+
+    ver = data.get("verifiche", "")
+    if _meaningful(ver):
+        story.append(_p("5.2 Verifiche, prove e collaudi", h3))
+        story.append(_p(ver, styles["BodyText"]))
         story.append(Spacer(1, 8))
-    # 6.2 Documentazione fotografica essenziale
-    fotos = data.get("foto") or []
-    if isinstance(fotos, list) and len(fotos) > 0:
-        story.append(_p("6.2 Documentazione fotografica essenziale", h3))
-        story.append(_foto_gallery(fotos, styles))
+
+    man = data.get("manutenzione", "")
+    if _meaningful(man):
+        story.append(_p("5.3 Esercizio, manutenzione e avvertenze", h3))
+        story.append(_p(man, styles["BodyText"]))
         story.append(Spacer(1, 8))
+
+    allg = data.get("allegati", "")
+    if _meaningful(allg):
+        story.append(_p("CAPITOLO 6 - ALLEGATI", h2))
+        story.append(_p(allg, styles["BodyText"]))
 
     # Firma finale (facoltativa)
     luogo_f = data.get("luogo_firma", "")
