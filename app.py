@@ -1669,14 +1669,8 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
 {("Integrazioni: " + criterio_note) if criterio_note.strip() else ""}"""
         )
 
-        st.markdown("### Struttura relazione (template integrato)")
-        stile_relazione = st.radio(
-            "Seleziona lo stile del documento",
-            ["Lean (essenziale)", "Completo (come template)"],
-            index=1,
-            help="Lean: include solo i paragrafi che servono quasi sempre. Completo: replica la struttura del template con tutti i paragrafi."
-        )
-        # (template UI moved outside the button)
+        # Nota: la selezione dello stile della relazione è già gestita nella UI principale
+        # (sezione "Struttura relazione"), quindi non va duplicata qui per evitare ID duplicati.
 
     payload = {
         "template_sections": template_sections,
