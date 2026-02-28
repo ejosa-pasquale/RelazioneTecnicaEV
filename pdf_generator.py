@@ -64,6 +64,18 @@ def _meaningful(value: Any) -> bool:
     return True
 
 
+def _first_non_empty(values: List[Any], default: str = "") -> str:
+    """Return first meaningful value from list, else default.
+
+    Keeps the document professional while ensuring that unanswered fields
+    do not leak placeholders into the final PDF.
+    """
+    for v in values:
+        if _meaningful(v):
+            return str(v).strip()
+    return default
+
+
 
 def _std_premessa(data: Dict[str, Any]) -> str:
     comm = _first_non_empty([data.get("committente_nome"), "Committenza"])
