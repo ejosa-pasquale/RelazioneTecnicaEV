@@ -786,7 +786,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(_p("4.2 Descrizione impianto e opere", h3))
         story.append(_p(descr, styles["BodyText"]))
         story.append(Spacer(1, 8))
-
+    # Robust: avoid NameError if variable scoping changes
     conf = data.get("confini", "")
     if _meaningful(conf):
         story.append(_p("4.3 Confini dell’intervento e interfacce", h3))
