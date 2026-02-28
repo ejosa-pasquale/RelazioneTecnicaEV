@@ -4,7 +4,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Iterable, Tuple
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -82,7 +82,7 @@ HEADING_HINTS = {
     "LAYOUT": ["LAYOUT D'IMPIANTO", "LAYOUT D’IMPIANTO"],
     "COLONNINE": ["COLONNINE", "WALLBOX", "STAZIONI DI RICARICA"],
     "FOTO": ["DOCUMENTAZIONE FOTOGRAFICA", "FOTOGRAFICA"],
-    "DIAGRAMMA": ["SCHEMA", "DIAGRAMMA", "LAYOUT"],
+    "DIAGRAMMA": ["SCHEMA", "DIAGRAMMA"],
     "ALLEGATI": ["ALLEGATI", "SCHEDA TECNICA", "SCHEDE TECNICHE"],
 }
 
@@ -101,7 +101,6 @@ FIELD_PLACEHOLDERS = {
 }
 
 _SAMPLE_REPLACEMENTS = {
-    # Example strings -> placeholder tokens (helps retrofit existing templates)
     "Busnago, 06/02/2024": "{{LUOGO_DATA}}",
     "Nome": "{{COMMITTENTE}}",
     "via della SS. Annunziata 32/A": "{{SITO_INDIRIZZO}}",
@@ -110,13 +109,50 @@ _SAMPLE_REPLACEMENTS = {
 }
 
 
-# -------------------- Doc helpers --------------------
-def _paragraph_text(p) -> str:
-    return p.text or ""
+# -------------------- Paragraph iteration (BODY + TABLES + HEADER/FOOTER) --------------------
+def iter_table_paragraphs(doc: Document) -> Iterable:
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    yield p
+                # nested tables inside cell
+                for nt in cell.tables:
+                    for nrow in nt.rows:
+                        for ncell in nrow.cells:
+                            for np in ncell.paragraphs:
+                                yield np
 
+def iter_header_footer_paragraphs(doc: Document) -> Iterable:
+    for section in doc.sections:
+        for hf in [section.header, section.footer]:
+            for p in hf.paragraphs:
+                yield p
+            for t in hf.tables:
+                for row in t.rows:
+                    for cell in row.cells:
+                        for p in cell.paragraphs:
+                            yield p
+
+def iter_all_paragraphs(doc: Document) -> Iterable:
+    for p in doc.paragraphs:
+        yield p
+    for p in iter_table_paragraphs(doc):
+        yield p
+    for p in iter_header_footer_paragraphs(doc):
+        yield p
+
+def doc_contains_text(doc: Document, text: str) -> bool:
+    needle = text.lower()
+    for p in iter_all_paragraphs(doc):
+        if needle in ((p.text or "").lower()):
+            return True
+    return False
+
+
+# -------------------- Doc helpers --------------------
 def _is_heading_like(text: str) -> bool:
     t = (text or "").strip()
-    # headings like "4 ..." or "4\t..." or "4. ..."
     return bool(re.match(r"^\d+(\.|)\s+", t))
 
 def _delete_paragraph(p):
@@ -141,107 +177,45 @@ def _replace_in_paragraph(p, mapping: Dict[str, str]):
                 r.text = ""
 
 def _replace_everywhere(doc: Document, mapping: Dict[str, str]):
-    for p in doc.paragraphs:
+    for p in iter_all_paragraphs(doc):
         _replace_in_paragraph(p, mapping)
-    for t in doc.tables:
-        for row in t.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    _replace_in_paragraph(p, mapping)
-    # header/footer too
-    for section in doc.sections:
-        for hf in [section.header, section.footer]:
-            for p in hf.paragraphs:
-                _replace_in_paragraph(p, mapping)
 
 def _find_first_paragraph_containing(doc: Document, needles: List[str]):
     needles_l = [n.lower() for n in needles]
-    for p in doc.paragraphs:
-        tx = (_paragraph_text(p)).lower()
+    for p in iter_all_paragraphs(doc):
+        tx = (p.text or "").lower()
         if any(n in tx for n in needles_l):
             return p
     return None
 
 def ensure_anchors(doc: Document) -> List[str]:
-    """
-    Crea i punti di aggancio nel CORPO del testo.
-    Se l'anchor non esiste già, la inserisce come paragrafo subito dopo un heading coerente.
-    Ritorna la lista di anchor creati.
-    """
     created = []
-    existing_text = "\n".join(p.text or "" for p in doc.paragraphs)
-
     for key, marker in ANCHORS.items():
-        if marker in existing_text:
+        if doc_contains_text(doc, marker):
             continue
-
         hints = HEADING_HINTS.get(key, [])
         anchor_after = _find_first_paragraph_containing(doc, hints) if hints else None
-
+        new_p = doc.add_paragraph(marker)
         if anchor_after is None:
-            # fallback: append at end
-            p = doc.add_paragraph(marker)
             created.append(marker)
             continue
-
-        # insert new paragraph after anchor_after
-        new_p = doc.add_paragraph(marker)
         anchor_after._p.addnext(new_p._p)
         created.append(marker)
-
     return created
 
 def retrofit_field_placeholders(doc: Document) -> int:
-    """Prova a trasformare alcune stringhe campione in placeholder, così i campi finiscono nel corpo."""
     count = 0
-    for p in doc.paragraphs:
+    for p in iter_all_paragraphs(doc):
         before = p.text
         for old, ph in _SAMPLE_REPLACEMENTS.items():
             if old in (p.text or ""):
                 _replace_in_paragraph(p, {old: ph})
         if p.text != before:
             count += 1
-    for t in doc.tables:
-        for row in t.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    before = p.text
-                    for old, ph in _SAMPLE_REPLACEMENTS.items():
-                        if old in (p.text or ""):
-                            _replace_in_paragraph(p, {old: ph})
-                    if p.text != before:
-                        count += 1
     return count
 
 def build_field_mapping(data: RelazioneData) -> Dict[str, str]:
     return {k: fn(data) for k, fn in FIELD_PLACEHOLDERS.items()}
-
-# -------------------- Section writers --------------------
-def _clear_section_after_heading(doc: Document, heading: str):
-    """Cancella i paragrafi dopo l'heading fino al prossimo heading numerato."""
-    paragraphs = list(doc.paragraphs)
-    title = None
-    for p in paragraphs:
-        if heading.lower() in (_paragraph_text(p)).lower():
-            title = p
-            break
-    if not title:
-        return None
-    try:
-        idx = paragraphs.index(title)
-    except ValueError:
-        return title
-    to_delete = []
-    for p2 in paragraphs[idx+1:]:
-        if _is_heading_like(p2.text):
-            break
-        to_delete.append(p2)
-    for p2 in reversed(to_delete):
-        try:
-            _delete_paragraph(p2)
-        except Exception:
-            pass
-    return title
 
 def _insert_bullets_after(paragraph, doc: Document, lines: List[str]):
     elm = paragraph._p
@@ -252,29 +226,58 @@ def _insert_bullets_after(paragraph, doc: Document, lines: List[str]):
         elm.addnext(bp._p)
         elm = bp._p
 
+def _clear_section_after_heading(doc: Document, heading_any: List[str]):
+    """Cancella paragrafi dopo il primo heading trovato (anche in tabelle) fino al prossimo heading numerato."""
+    title = _find_first_paragraph_containing(doc, heading_any)
+    if not title:
+        return None
+    # In tables, doc.paragraphs doesn't help; we delete by walking following siblings in XML until we find heading-like paragraph.
+    # Best-effort: if it's in body, we can use doc.paragraphs list; if not, we only wipe the title paragraph content.
+    try:
+        body_paras = list(doc.paragraphs)
+        if title in body_paras:
+            idx = body_paras.index(title)
+            to_delete = []
+            for p2 in body_paras[idx+1:]:
+                if _is_heading_like(p2.text):
+                    break
+                to_delete.append(p2)
+            for p2 in reversed(to_delete):
+                try:
+                    _delete_paragraph(p2)
+                except Exception:
+                    pass
+            return title
+    except Exception:
+        pass
+    return title
+
+# -------------------- Section writers --------------------
 def write_layout(doc: Document, data: RelazioneData):
-    # Prefer anchor
     marker = ANCHORS["LAYOUT"]
     p = _find_first_paragraph_containing(doc, [marker])
     if p:
         _wipe_paragraph(p)
         anchor = p
     else:
-        anchor = _clear_section_after_heading(doc, "LAYOUT D'IMPIANTO") or _clear_section_after_heading(doc, "LAYOUT D’IMPIANTO")
+        anchor = _clear_section_after_heading(doc, ["LAYOUT D'IMPIANTO", "LAYOUT D’IMPIANTO"])
         if not anchor:
             return
-    # Remove any existing content if marker was inside body section
-    # write included/excluded
+
+    # If anchor is a heading itself and we didn't delete content (table case), we just insert after it.
     elm = anchor._p
+
     if data.layout_incluso.strip():
         lbl = doc.add_paragraph("Incluso:")
-        lbl.runs[0].bold = True if lbl.runs else True
+        if lbl.runs:
+            lbl.runs[0].bold = True
         elm.addnext(lbl._p); elm = lbl._p
         _insert_bullets_after(lbl, doc, data.layout_incluso.splitlines())
-        # move elm to last inserted bullet by scanning next siblings isn't easy; ok to keep.
+
     if data.layout_escluso.strip():
         lbl2 = doc.add_paragraph("Escluso:")
-        lbl2.runs[0].bold = True if lbl2.runs else True
+        if lbl2.runs:
+            lbl2.runs[0].bold = True
         elm.addnext(lbl2._p); elm = lbl2._p
         _insert_bullets_after(lbl2, doc, data.layout_escluso.splitlines())
 
@@ -347,7 +350,7 @@ def write_allegati(doc: Document, allegati: List[AllegatoItem]):
     if not p or not allegati:
         return
     _wipe_paragraph(p)
-    lines = [f"{a.filename}" for a in allegati]
+    lines = [a.filename for a in allegati]
     _insert_bullets_after(p, doc, lines)
 
 # -------------------- Cover writer --------------------
@@ -359,10 +362,7 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
         run = p.add_run(text)
         run.bold = bold
         run.font.size = Pt(size)
-        if align == "center":
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        else:
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER if align == "center" else WD_ALIGN_PARAGRAPH.LEFT
         return p
 
     p_title = add_par("RELAZIONE TECNICA", 22, True, "center")
@@ -389,10 +389,13 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
     if esecutrice and (esecutrice.nome.strip() or esecutrice.indirizzo.strip() or esecutrice.piva.strip()):
         p_ex = doc.add_paragraph()
         p_ex.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        r = p_ex.add_run("DITTA ESECUTRICE")
-        r.bold = True
+        r = p_ex.add_run("DITTA ESECUTRICE"); r.bold = True
         elm.addnext(p_ex._p); elm = p_ex._p
-        for line in [esecutrice.nome.strip(), esecutrice.indirizzo.strip(), (f"P.IVA: {esecutrice.piva.strip()}" if esecutrice.piva.strip() else "")]:
+        for line in [
+            esecutrice.nome.strip(),
+            esecutrice.indirizzo.strip(),
+            (f"P.IVA: {esecutrice.piva.strip()}" if esecutrice.piva.strip() else ""),
+        ]:
             if not line:
                 continue
             pp = doc.add_paragraph(line)
@@ -413,14 +416,12 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
 
 # -------------------- Main API --------------------
 def prepare_template(template: Union[bytes, Path]) -> bytes:
-    """Crea i punti di aggancio nel corpo del testo e converte alcuni campi base in placeholder."""
     doc = Document(io.BytesIO(template) if isinstance(template, (bytes, bytearray)) else str(template))
     retrofit_field_placeholders(doc)
     ensure_anchors(doc)
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
-
 
 def generate_document(
     template: Union[bytes, Path],
@@ -434,17 +435,13 @@ def generate_document(
 ) -> bytes:
     doc = Document(io.BytesIO(template) if isinstance(template, (bytes, bytearray)) else str(template))
 
-    # 1) create anchors (so generation works even if template wasn't prepared)
     ensure_anchors(doc)
 
-    # 2) placeholder fields
     ph = build_field_mapping(data)
     _replace_everywhere(doc, ph)
 
-    # 3) cover (optional but gives clean header info)
     insert_cover(doc, data, progettista, esecutrice)
 
-    # 4) sections
     if esecutrice:
         write_ditta_esecutrice(doc, esecutrice)
     write_layout(doc, data)

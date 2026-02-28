@@ -220,6 +220,17 @@ with tab4:
 
 st.divider()
 st.subheader("Generazione")
+with st.expander("Debug template"):
+    from docx import Document
+    import io as _io
+    try:
+        _d = Document(_io.BytesIO(st.session_state.template_bytes))
+        text = "\n".join([p.text for p in _d.paragraphs])
+        st.write("Marker presenti nel body:", {m: (m in text) for m in ["{{LAYOUT_DESCRITTIVO}}","{{COLONNINE}}","{{FOTO_GALLERY}}","{{DIAGRAMMA_IMPIANTO}}","{{ALLEGATI_SCHEDA_TECNICA}}","{{DITTA_ESECUTRICE}}"]})
+        st.caption("Nota: se i titoli/marker sono dentro tabelle, non compaiono qui. La v12 li cerca anche dentro le tabelle durante la generazione.")
+    except Exception as e:
+        st.write(e)
+
 fname = st.text_input("Nome file", "relazione_tecnica")
 colG1, colG2 = st.columns([1,1])
 with colG1:
