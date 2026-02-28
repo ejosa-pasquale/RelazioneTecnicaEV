@@ -68,6 +68,46 @@ class RelazioneData:
     layout_escluso: str = ""
 
 
+
+def build_placeholder_mapping(data: RelazioneData) -> Dict[str, str]:
+    """Mapping per template a placeholder (consigliato).
+    Se usi relazione_template_placeholders.docx, questi token verranno sostituiti nel corpo testo.
+    """
+    return {
+        "{{LUOGO_DATA}}": data.luogo_data,
+        "{{COMMITTENTE}}": data.committente_nome,
+        "{{SITO_INDIRIZZO}}": data.sito_indirizzo,
+        "{{SITO_CAP_CITTA}}": data.sito_cap_citta,
+        "{{OGGETTO}}": data.oggetto,
+        "{{DISTANZA_M}}": str(data.distanza_m),
+        "{{POTENZA_IMPEGNATA_KW}}": f"{data.potenza_impegnata_kw:g}",
+        "{{POTENZA_COLONNINA_KW}}": f"{data.potenza_wallbox_kw:g}",
+        "{{IK_TRIFASE_KA}}": f"{data.ik_trifase_ka:g}",
+        "{{IK_MONOFASE_KA}}": f"{data.ik_monofase_ka:g}",
+        "{{CAVO_LUNGHEZZA_M}}": str(data.cavo_lunghezza_m),
+        "{{CAVO_TIPO}}": data.cavo_tipo,
+    }
+
+
+def _replace_in_headers_and_footers(doc: Document, mapping: Dict[str, str]) -> None:
+    """Sostituisce anche in header/footer (spesso contengono testo di copertina o intestazioni)."""
+    for section in doc.sections:
+        for hf in [section.header, section.footer]:
+            for p in hf.paragraphs:
+                # reuse paragraph replace logic by wrapping into a fake doc is overkill: do inline
+                full = "".join(run.text for run in p.runs)
+                new = full
+                for old, newv in mapping.items():
+                    if old:
+                        new = new.replace(old, newv)
+                if new != full:
+                    if not p.runs:
+                        p.add_run(new)
+                    else:
+                        p.runs[0].text = new
+                        for r in p.runs[1:]:
+                            r.text = ""
+
 # ----------------- helpers -----------------
 def _replace_text_everywhere(doc: Document, mapping: Dict[str, str]) -> None:
     def repl_in_paragraph(p):
@@ -419,6 +459,11 @@ def generate_docx_bytes(
     _insert_cover(doc, data, progettista, esecutrice)
 
     _replace_text_everywhere(doc, build_mapping(data))
+
+    # Placeholder-driven (consigliato): sostituisce token {{...}} nel corpo testo
+    ph = build_placeholder_mapping(data)
+    _replace_text_everywhere(doc, ph)
+    _replace_in_headers_and_footers(doc, ph)
 
     if colonnine:
         lines = [f"n. {c.quantita} — {c.descrizione}" for c in colonnine]

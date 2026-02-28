@@ -23,7 +23,7 @@ from generator import (
 )
 
 APP_DIR = Path(__file__).parent
-DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "relazione_base.docx"
+DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "relazione_template_placeholders.docx"
 PROFILES_DIR = APP_DIR / "profiles"
 
 st.set_page_config(page_title="Generatore Relazione Progetto Elettrico", layout="wide")
@@ -146,6 +146,8 @@ with st.sidebar:
     if uploaded_template:
         st.session_state.template_bytes = uploaded_template.getvalue()
         st.success("Template caricato (in memoria).")
+
+    st.download_button("Scarica template con placeholder", data=DEFAULT_TEMPLATE_PATH.read_bytes(), file_name="relazione_template_placeholders.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
 
     st.caption(
         "Placeholder nel template:\n"

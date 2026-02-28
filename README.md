@@ -92,3 +92,12 @@ Aggiunta sezione **Ditta esecutrice** con campi:
 
 Viene mostrata nella **cover** se compilata.  
 In alternativa puoi inserirla nel corpo documento con il placeholder `{{DITTA_ESECUTRICE}}`.
+
+## Template a placeholder (consigliato)
+
+Per popolare **il corpo del testo** in modo affidabile, usa il template:
+- `templates/relazione_template_placeholders.docx`
+
+Contiene token come `{{COMMITTENTE}}`, `{{SITO_INDIRIZZO}}`, `{{OGGETTO}}` ecc. che l’app sostituisce ovunque nel documento (anche in header/footer).
+
+Puoi anche scaricarlo dalla sidebar dell’app.
