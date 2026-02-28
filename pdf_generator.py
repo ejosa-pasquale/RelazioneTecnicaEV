@@ -685,6 +685,11 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     styles = getSampleStyleSheet()
     styles = _ensure_table_styles(styles)
 
+    # In questa versione il report include sempre la sezione "PROGETTO ELETTRICO – RELAZIONE TECNICA" (par. 9…58)
+    # e le tabelle (quadri/linee/EVSE) vengono innestate nei paragrafi dedicati.
+    # La variabile serve solo per evitare doppie stampe nelle sezioni di sintesi.
+    use_template_sections = True
+
     th = ParagraphStyle("th", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
     tc = ParagraphStyle("tc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
 
