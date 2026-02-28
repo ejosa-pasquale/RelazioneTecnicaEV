@@ -40,6 +40,21 @@ def _p(text: str, style):
     return Paragraph(safe, style)
 
 
+def _split_paragraphs(text: str) -> List[str]:
+    """Split a block of text into meaningful paragraphs.
+
+    We keep the PDF readable and avoid manual <br/> everywhere:
+    - split on blank lines
+    - keep bullet lists inside their paragraph
+    - drop empty chunks
+    """
+    if not text:
+        return []
+    t = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    chunks = [c.strip() for c in t.split("\n\n")]
+    return [c for c in chunks if c]
+
+
 def _meaningful(value: Any) -> bool:
     if value is None:
         return False
