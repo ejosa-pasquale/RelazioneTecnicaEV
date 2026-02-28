@@ -155,11 +155,11 @@ with tab1:
     else:
         for f in st.session_state.aggiungere_fields:
             k = f"aggi_{f['key']}"
-            default = st.session_state.aggiungere_values.get(f["key"], "")
-            val = st.text_area(f["label"], value=default, height=80, key=k)
-            st.session_state.aggiungere_values[f["key"]] = val
+            default = st.session_state.aggiungere_values.get(f['key'], "")
+            val = st.text_area(f['label'], value=default, height=80, key=k)
+            st.session_state.aggiungere_values[f['key']] = val
 
-st.subheader("Layout d'impianto (testo nel corpo)")
+    st.subheader("Layout d'impianto (testo nel corpo)")
     layout_incluso = st.text_area("Incluso (1 riga = 1 bullet)", height=120)
     layout_escluso = st.text_area("Escluso (1 riga = 1 bullet)", height=120)
 
