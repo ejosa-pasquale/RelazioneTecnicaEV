@@ -739,13 +739,6 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     story.append(_p(data.get("norme", ""), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
-
-    aspetti_norm = data.get("aspetti_normativi_estesi", "")
-    if _meaningful(aspetti_norm):
-        story.append(_p("2.1 Aspetti normativi e prescrizioni specifiche", h3))
-        story.append(_p(aspetti_norm, styles["BodyText"]))
-        story.append(Spacer(1, 10))
-
     criterio = data.get("criterio_progetto", "")
     if _meaningful(criterio):
         story.append(_p("CAPITOLO 3 - CRITERI DI PROGETTO DEGLI IMPIANTI", h2))
@@ -957,12 +950,44 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
             story.extend(photo_flows)
 
 
-    # Appendice / Relazione estesa (opzionale, stile template Word)
-    rel_estesa = data.get("relazione_estesa", "")
-    if _meaningful(rel_estesa):
+    # CAPITOLO 7 - CARATTERISTICHE TECNICHE (estese, opzionali)
+    tech_items = data.get("caratteristiche_tecniche_items") or []
+    tech_note = data.get("caratteristiche_tecniche_note", "")
+    if tech_items or _meaningful(tech_note):
         story.append(PageBreak())
-        story.append(_p("APPENDICE A - RELAZIONE TECNICA ESTESA", h2))
-        story.append(_p(rel_estesa, styles["BodyText"]))
+        story.append(_p("CAPITOLO 7 - CARATTERISTICHE TECNICHE", h2))
+
+        # Stampa i soli elementi compilati (nessun placeholder)
+        for item in tech_items:
+            titolo = str(item.get("titolo", "")).strip()
+            testo = str(item.get("testo", "")).strip()
+            if _meaningful(titolo) and _meaningful(testo):
+                story.append(_p(titolo, h3))
+                story.append(_p(testo, styles["BodyText"]))
+                story.append(Spacer(1, 6))
+
+        if _meaningful(tech_note):
+            story.append(_p("Note / integrazioni", h3))
+            story.append(_p(tech_note, styles["BodyText"]))
+
+    # CAPITOLO 8 - ASPETTI NORMATIVI (estesi, opzionali)
+    norm_items = data.get("aspetti_normativi_items") or []
+    norm_note = data.get("aspetti_normativi_note", "")
+    if norm_items or _meaningful(norm_note):
+        story.append(PageBreak())
+        story.append(_p("CAPITOLO 8 - ASPETTI NORMATIVI", h2))
+
+        for item in norm_items:
+            titolo = str(item.get("titolo", "")).strip()
+            testo = str(item.get("testo", "")).strip()
+            if _meaningful(titolo) and _meaningful(testo):
+                story.append(_p(titolo, h3))
+                story.append(_p(testo, styles["BodyText"]))
+                story.append(Spacer(1, 6))
+
+        if _meaningful(norm_note):
+            story.append(_p("Note / integrazioni", h3))
+            story.append(_p(norm_note, styles["BodyText"]))
 
     # Firma finale (facoltativa)
     luogo_f = data.get("luogo_firma", "")

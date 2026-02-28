@@ -512,76 +512,112 @@ Eventuali ulteriori prescrizioni di Enti/Autorità locali: {prescrizioni_enti}.
 
 
 # =========================
-# TEMPLATE ESTESO (OPZIONALE)
+# SEZIONI ESTESE INTEGRATE (Cap. 7-8) – OPZIONALE
 # =========================
-st.subheader("Sezioni estese (opzionali)")
-usa_template_esteso = st.checkbox(
-    "Includi sezioni estese (più paragrafi, stile template Word)",
+st.subheader("Sezioni estese integrate (opzionali)")
+st.caption(
+    "Le sezioni compilate qui vengono integrate nel documento (Capitoli 7 e 8). "
+    "Le righe non compilate non verranno stampate nel PDF."
+)
+
+precompila_titoli = st.checkbox(
+    "Precompila i titoli standard (testi vuoti)",
     value=True,
-    help="Se attivo, puoi inserire (o mantenere) testi estesi che verranno riportati nel PDF. Se lasci vuoto, non verranno stampati."
+    help="Inserisce l'elenco dei paragrafi tipici (come nel modello Word). I testi restano vuoti finché non li compili.",
 )
 
-default_aspetti = '''Aspetti normativi (integrazione)
-- Infrastrutture di ricarica EV: prescrizioni della CEI 64-8 Sez. 722 e della CEI EN 61851-1, ove applicabili.
-- Sicurezza nei luoghi di lavoro: le attività di installazione/manutenzione devono svolgersi nel rispetto del D.Lgs. 81/2008 e s.m.i., con idonee procedure, DPI e qualifiche.
-- Prevenzione incendi: se l’infrastruttura di ricarica è installata all’interno di attività soggette ai controlli VV.F., devono essere rispettate le indicazioni e prescrizioni applicabili (anche in coerenza con il progetto antincendio dell’attività).
-- Accessibilità: eventuali limitazioni di accesso ai locali tecnici si intendono nei limiti consentiti dalla normativa applicabile (D.M. 236/1989 e s.m.i.), se pertinente.
-'''
+def _default_items_cap7():
+    titoli = [
+        "9 - Area di intervento e tipo di attività",
+        "10 - Tipo di impianto",
+        "11 - Punto di origine",
+        "12 - Sistema di fornitura",
+        "13 - Tensione nominale",
+        "14 - Sistema di distribuzione",
+        "15 - Corrente di corto circuito",
+        "16 - Potenza impegnata",
+        "17 - Caduta di tensione",
+        "18 - Correnti di impiego e portate dei cavi",
+        "19 - Sezione minima dei conduttori di fase",
+        "20 - Sezione minima dei conduttori di neutro",
+        "21 - Sezione minima dei conduttori di protezione (PE)",
+        "22 - Sezione minima del conduttore di terra",
+        "23 - Colori di identificazione",
+        "24 - Sezionamento e comando",
+        "28 - Protezione contro i contatti diretti",
+        "29 - Protezione contro i contatti indiretti – sistema TT",
+        "32 - Protezione delle condutture contro le sovracorrenti",
+        "35 - Selettività",
+        "36 - Schemi e documentazione",
+        "37 - Descrizione degli impianti",
+        "38 - Quadri elettrici",
+        "39 - Distribuzione principale",
+        "40 - Stazione di ricarica / colonnina (se applicabile)",
+    ]
+    return [{"titolo": t, "testo": ""} for t in titoli]
 
-default_relazione_estesa = '''AREA DI INTERVENTO E TIPO DI ATTIVITÀ
-Descrivere se l’installazione è outdoor/indoor, area privata/condominiale, autorimessa, parcheggio, ecc., indicando eventuali vincoli riscontrati.
+def _default_items_cap8():
+    titoli = [
+        "8.1 - Quadro normativo di riferimento (CEI/UNI/Leggi)",
+        "8.2 - D.M. 37/08: conformità e documentazione",
+        "8.3 - D.P.R. 462/01: verifiche (se applicabile)",
+        "8.4 - Infrastrutture di ricarica VE (CEI 64-8/7-722, CEI EN 61851-1)",
+        "8.5 - Eventuali prescrizioni VV.F. / prevenzione incendi (se applicabile)",
+    ]
+    return [{"titolo": t, "testo": ""} for t in titoli]
 
-TIPO DI IMPIANTO
-Impianto elettrico utilizzatore in BT con alimentazione dal punto di consegna del Distributore; indicare categoria/uso e destinazione d’uso dei locali.
+def _rows_to_items(df: pd.DataFrame):
+    items = []
+    for _, r in df.iterrows():
+        titolo = str(r.get("titolo", "")).strip()
+        testo = str(r.get("testo", "")).strip()
+        # Salva righe parziali: il PDF stamperà solo titolo+testo compilati
+        if titolo or testo:
+            items.append({"titolo": titolo, "testo": testo})
+    return items
 
-PUNTO DI ORIGINE E PERCORSI
-Indicare il punto di origine dell’alimentazione (quadro/contatore) e la lunghezza indicativa della tratta, modalità posa e attraversamenti.
+with st.expander("Capitolo 7 – Caratteristiche tecniche (facoltativo)", expanded=False):
+    cap7_df = pd.DataFrame(_default_items_cap7() if precompila_titoli else [{"titolo": "", "testo": ""}])
+    cap7_df = st.data_editor(
+        cap7_df,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "titolo": st.column_config.TextColumn("Titolo paragrafo"),
+            "testo": st.column_config.TextColumn("Testo", width="large"),
+        },
+        key="cap7_editor",
+    )
+    caratteristiche_tecniche_note = st.text_area(
+        "Note tecniche aggiuntive (opzionale)",
+        value="",
+        height=100,
+        placeholder="(opzionale) Se vuoto non verrà stampato.",
+        key="cap7_note",
+    )
 
-SISTEMA DI FORNITURA / TENSIONE / FREQUENZA
-Indicare monofase/trifase, 230/400 V, 50 Hz e qualsiasi prescrizione del Distributore.
+with st.expander("Capitolo 8 – Aspetti normativi (facoltativo)", expanded=False):
+    cap8_df = pd.DataFrame(_default_items_cap8() if precompila_titoli else [{"titolo": "", "testo": ""}])
+    cap8_df = st.data_editor(
+        cap8_df,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "titolo": st.column_config.TextColumn("Titolo paragrafo"),
+            "testo": st.column_config.TextColumn("Testo", width="large"),
+        },
+        key="cap8_editor",
+    )
+    aspetti_normativi_note = st.text_area(
+        "Note normative aggiuntive (opzionale)",
+        value="",
+        height=100,
+        placeholder="(opzionale) Se vuoto non verrà stampato.",
+        key="cap8_note",
+    )
 
-SISTEMA DI DISTRIBUZIONE E TERRA
-Specificare TT/TN e criteri di coordinamento tra terra e dispositivi di protezione.
-
-CORRENTE DI CORTO CIRCUITO
-Indicare Icc presunta al punto di installazione e il criterio di scelta del potere di interruzione dei dispositivi.
-
-POTENZA IMPEGNATA E CONTEMPORANEITÀ
-Indicare potenza contrattuale e potenze installate; motivare eventuali fattori di contemporaneità/utilizzazione.
-
-CADUTA DI TENSIONE
-Richiamare il limite di progetto (tipicamente ≤ 4% a fondo linea in BT) e i valori calcolati dove disponibili.
-
-CORRENTI DI IMPIEGO E PORTATE DEI CAVI
-Richiamare che il dimensionamento è eseguito secondo tabelle CEI-UNEL e coefficienti di correzione (posa, temperatura, raggruppamento).
-
-SEZIONI MINIME CONDUTTORI (FASE/NEUTRO/PE/TERRA)
-Riportare criteri normativi (CEI 64-8, Tab. 54F/54A) e verifiche (I²t, K²S²) dove applicabili.
-
-SEZIONAMENTO E COMANDO
-Descrivere i dispositivi di sezionamento, comando funzionale e interruzione per manutenzione non elettrica.
-
-PROTEZIONI (CONTATTI DIRETTI/INDIRETTI, SOVRACCARICHI, CORTOCIRCUITI)
-Richiamare i principi: isolamento/involucri IP adeguati; interruzione automatica dell’alimentazione; coordinamento Ib–In–Iz e If ≤ 1,45 Iz; PdI/Icu > Icc.
-
-QUADRI, APPARECCHIATURE E CAVI
-Descrivere criteri di scelta e conformità (CEI EN 61439, CEI EN 60947-2, CPR per cavi, marcature, identificazione conduttori).
-
-VERIFICHE
-Richiamare le verifiche iniziali (CEI 64-8 Cap. 61): esame a vista e prove (continuità PE, isolamento, RCD, resistenza terra, impedenza anello di guasto), con registrazione dei risultati.
-'''
-
-aspetti_normativi_estesi = st.text_area(
-    "2.1 Aspetti normativi e prescrizioni specifiche (opzionale)",
-    value=(default_aspetti if usa_template_esteso else ""),
-    height=180,
-)
-
-relazione_estesa = st.text_area(
-    "Appendice A – Relazione tecnica estesa (opzionale)",
-    value=(default_relazione_estesa if usa_template_esteso else ""),
-    height=380,
-)
+caratteristiche_tecniche_items = _rows_to_items(cap7_df)
+aspetti_normativi_items = _rows_to_items(cap8_df)
 
 
 dati_tecnici = f"""Tipo sistema di distribuzione: {sistema}. Tensione nominale: {tensione}. Potenza disponibile/contrattuale: {potenza_disp_kw}.
@@ -809,12 +845,13 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "progettista_nome": progettista_nome,
         "premessa": premessa,
         "norme": norme,
-        "aspetti_normativi_estesi": aspetti_normativi_estesi,
+        # Sezioni estese integrate (Cap. 7-8) – stampate solo se compilate
+        "caratteristiche_tecniche_items": caratteristiche_tecniche_items,
+        "caratteristiche_tecniche_note": caratteristiche_tecniche_note,
+        "aspetti_normativi_items": aspetti_normativi_items,
+        "aspetti_normativi_note": aspetti_normativi_note,
         "criterio_progetto": criterio_testo,
         "dati_progettazione": dati_progettazione_txt,
-
-        "relazione_estesa": relazione_estesa,
-
         "dati_tecnici": dati_tecnici,
         "descrizione_impianto": descrizione_impianto,
         "confini": confini_txt,
