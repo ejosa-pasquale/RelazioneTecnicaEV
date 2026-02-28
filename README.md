@@ -82,3 +82,13 @@ Nel template Word inserisci questi placeholder nei punti desiderati:
 
 La cover viene generata automaticamente dall’app con i dati del progettista.
 Se il template contiene una cover grafica “difficile” (forme Word), elimina la prima pagina dal template e lascia il resto.
+
+## Ditta esecutrice (v5)
+
+Aggiunta sezione **Ditta esecutrice** con campi:
+- Nome/Ragione sociale
+- Indirizzo
+- P.IVA
+
+Viene mostrata nella **cover** se compilata.  
+In alternativa puoi inserirla nel corpo documento con il placeholder `{{DITTA_ESECUTRICE}}`.

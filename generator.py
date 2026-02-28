@@ -4,7 +4,7 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple
+from typing import Dict, List, Optional, Union
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -20,7 +20,7 @@ class PhotoItem:
 
 @dataclass
 class ColonninaItem:
-    descrizione: str  # testo libero (modello, potenza, connettori, ecc.)
+    descrizione: str
     quantita: int = 1
 
 
@@ -28,7 +28,7 @@ class ColonninaItem:
 class AllegatoItem:
     filename: str
     content: bytes
-    kind: str  # "docx" | "pdf" | "other"
+    kind: str  # "docx" | "pdf"
 
 
 @dataclass
@@ -41,31 +41,34 @@ class ProgettistaData:
 
 
 @dataclass
+class EsecutriceData:
+    nome: str
+    indirizzo: str
+    piva: str
+
+
+@dataclass
 class RelazioneData:
-    # Anagrafica
     luogo_data: str
     committente_nome: str
     sito_indirizzo: str
     sito_cap_citta: str
-
     oggetto: str
 
-    # Dati tecnici (principali)
     distanza_m: int = 60
     potenza_impegnata_kw: float = 4.0
     potenza_wallbox_kw: float = 7.4
     cavo_tipo: str = "FG16OM16 3G6 0.6/1kV"
     cavo_lunghezza_m: int = 60
 
-    # Correnti di corto
     ik_trifase_ka: float = 10.0
     ik_monofase_ka: float = 6.0
 
-    # Layout descrittivo
     layout_incluso: str = ""
     layout_escluso: str = ""
 
 
+# ----------------- helpers -----------------
 def _replace_text_everywhere(doc: Document, mapping: Dict[str, str]) -> None:
     def repl_in_paragraph(p):
         full = "".join(run.text for run in p.runs)
@@ -92,7 +95,6 @@ def _replace_text_everywhere(doc: Document, mapping: Dict[str, str]) -> None:
 
 
 def build_mapping(data: RelazioneData) -> Dict[str, str]:
-    # Sostituzioni "sicure" basate sulle stringhe campione nel template.
     return {
         "Busnago, 06/02/2024": data.luogo_data,
         "Nome": data.committente_nome,
@@ -121,6 +123,14 @@ def _find_paragraph_with_marker(doc: Document, marker: str):
     return None
 
 
+def _find_paragraph_contains(doc: Document, needle: str):
+    n = needle.lower()
+    for p in doc.paragraphs:
+        if n in (p.text or "").lower():
+            return p
+    return None
+
+
 def _wipe_paragraph_text(p):
     for r in p.runs:
         r.text = ""
@@ -131,8 +141,7 @@ def _insert_diagram(doc: Document, marker: str, diagram_bytes: bytes, width_in: 
     if not p or not diagram_bytes:
         return
     _wipe_paragraph_text(p)
-    run = p.add_run()
-    run.add_picture(io.BytesIO(diagram_bytes), width=Inches(width_in))
+    p.add_run().add_picture(io.BytesIO(diagram_bytes), width=Inches(width_in))
 
 
 def _insert_gallery(doc: Document, marker: str, photos: List[PhotoItem], cols: int = 2):
@@ -177,9 +186,11 @@ def _insert_bullets(doc: Document, marker: str, lines: List[str], heading: Optio
     _wipe_paragraph_text(p)
     if heading:
         p.add_run(heading)
-        p.style = doc.styles["Heading 3"] if "Heading 3" in doc.styles else p.style
+        try:
+            p.style = doc.styles["Heading 3"]
+        except Exception:
+            pass
 
-    # Inserisci lista subito dopo
     last_elm = p._p
     for line in lines:
         if not line.strip():
@@ -190,24 +201,50 @@ def _insert_bullets(doc: Document, marker: str, lines: List[str], heading: Optio
 
 
 def _insert_layout_text(doc: Document, marker: str, included: str, excluded: str):
+    """
+    Inserisce il layout:
+    - se trova il placeholder {{LAYOUT_DESCRITTIVO}} lo sostituisce lì.
+    - altrimenti prova a inserirlo subito dopo il titolo 'LAYOUT D'IMPIANTO' (fallback).
+    """
     p = _find_paragraph_with_marker(doc, marker)
-    if not p:
+    anchor = None
+    wipe_anchor = True
+
+    if p:
+        anchor = p
+    else:
+        # fallback: cerca il titolo
+        title = _find_paragraph_contains(doc, "LAYOUT D'IMPIANTO")
+        if not title:
+            title = _find_paragraph_contains(doc, "LAYOUT D’IMPIANTO")  # apostrofo tipografico
+        if title:
+            anchor = title
+            wipe_anchor = False  # non cancellare il titolo
+
+    if not anchor:
         return
-    _wipe_paragraph_text(p)
-    p.add_run("Layout d’impianto (descrizione):").bold = True
-    # paragrafi successivi
-    elm = p._p
+
+    if wipe_anchor:
+        _wipe_paragraph_text(anchor)
+        anchor.add_run("Layout d’impianto (descrizione):").bold = True
+
+    elm = anchor._p
+    def add_label(lbl: str):
+        p_lbl = doc.add_paragraph(lbl)
+        if p_lbl.runs:
+            p_lbl.runs[0].bold = True
+        return p_lbl
+
     if included.strip():
-        p_inc = doc.add_paragraph("Incluso:")
-        p_inc.runs[0].bold = True
+        p_inc = add_label("Incluso:")
         elm.addnext(p_inc._p); elm = p_inc._p
         for line in included.splitlines():
             if line.strip():
                 bp = doc.add_paragraph(line.strip(), style="List Bullet" if "List Bullet" in doc.styles else None)
                 elm.addnext(bp._p); elm = bp._p
+
     if excluded.strip():
-        p_exc = doc.add_paragraph("Escluso:")
-        p_exc.runs[0].bold = True
+        p_exc = add_label("Escluso:")
         elm.addnext(p_exc._p); elm = p_exc._p
         for line in excluded.splitlines():
             if line.strip():
@@ -215,11 +252,63 @@ def _insert_layout_text(doc: Document, marker: str, included: str, excluded: str
                 elm.addnext(bp._p); elm = bp._p
 
 
-def _insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaData):
-    # Inserisce una cover pulita all'inizio del documento (migliora impaginazione).
-    # Nota: se il template contiene una cover "grafica" come forme Word, conviene eliminarla dal template.
+def _insert_esecutrice_placeholder(doc: Document, marker: str, esecutrice: EsecutriceData):
+    p = _find_paragraph_with_marker(doc, marker)
+    if not p:
+        return
+    _wipe_paragraph_text(p)
+    lines = []
+    if esecutrice.nome.strip():
+        lines.append(esecutrice.nome.strip())
+    if esecutrice.indirizzo.strip():
+        lines.append(esecutrice.indirizzo.strip())
+    if esecutrice.piva.strip():
+        lines.append(f"P.IVA: {esecutrice.piva.strip()}")
+
+    if not lines:
+        return
+
+    p.add_run("Ditta esecutrice:").bold = True
+    elm = p._p
+    for line in lines:
+        pp = doc.add_paragraph(line)
+        pp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        elm.addnext(pp._p)
+        elm = pp._p
+
+
+def _insert_allegati(doc: Document, marker: str, allegati: List[AllegatoItem]):
+    p = _find_paragraph_with_marker(doc, marker)
+    if not p or not allegati:
+        return
+    _wipe_paragraph_text(p)
+    p.add_run("Allegati (schede tecniche):").bold = True
+    elm = p._p
+    for a in allegati:
+        bp = doc.add_paragraph(f"- {a.filename}")
+        elm.addnext(bp._p); elm = bp._p
+        if a.kind == "docx":
+            # best-effort: aggiunge il testo in appendice
+            try:
+                sub = Document(io.BytesIO(a.content))
+                sep = doc.add_paragraph(f"--- Contenuto allegato: {a.filename} ---")
+                if sep.runs:
+                    sep.runs[0].italic = True
+                elm.addnext(sep._p); elm = sep._p
+                for sp in sub.paragraphs:
+                    if sp.text.strip():
+                        ap = doc.add_paragraph(sp.text)
+                        elm.addnext(ap._p); elm = ap._p
+            except Exception:
+                pass
+
+
+def _insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaData, esecutrice: Optional[EsecutriceData] = None):
+    """
+    Cover page robusta:
+    usa doc.add_page_break() (evita AttributeError su pb_run.add_page_break()).
+    """
     body = doc._body._element
-    first = body[0]
 
     def add_par(text: str, size_pt: int = 12, bold: bool = False, align="center"):
         p = doc.add_paragraph()
@@ -232,18 +321,15 @@ def _insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDa
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         return p
 
-    # Costruisci in coda e poi spostiamo in testa (hack XML)
     p_title = add_par("RELAZIONE TECNICA", size_pt=22, bold=True, align="center")
-    p_sub = add_par(data.oggetto.upper(), size_pt=14, bold=True, align="center")
+    add_par(data.oggetto.upper(), size_pt=14, bold=True, align="center")
+    add_par("", 12)
+    add_par(f"Sito: {data.sito_indirizzo} — {data.sito_cap_citta}", size_pt=11, align="center")
+    add_par(f"Committente: {data.committente_nome}", size_pt=11, align="center")
+    add_par(data.luogo_data, size_pt=11, align="center")
     add_par("", 12)
 
-    p_site = add_par(f"Sito: {data.sito_indirizzo} — {data.sito_cap_citta}", size_pt=11, align="center")
-    p_comm = add_par(f"Committente: {data.committente_nome}", size_pt=11, align="center")
-    p_date = add_par(data.luogo_data, size_pt=11, align="center")
-
-    add_par("", 12)
-
-    # blocco progettista a sinistra
+    # Progettista
     p_proj = add_par("PROGETTISTA", size_pt=12, bold=True, align="left")
     elm = p_proj._p
     for line in [
@@ -255,74 +341,45 @@ def _insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDa
     ]:
         pp = doc.add_paragraph(line)
         pp.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        elm.addnext(pp._p)
-        elm = pp._p
+        elm.addnext(pp._p); elm = pp._p
 
-    # page break
-    pb = doc.add_paragraph()
-    pb_run = pb.add_run()
-    pb_run.add_break()  # line break
-    pb_run.add_break()  # keep
-    pb_run.add_break()  # keep
-    pb_run.add_break()  # keep
-    pb_run.add_page_break()
+    # Ditta esecutrice (opzionale)
+    if esecutrice and (esecutrice.nome.strip() or esecutrice.indirizzo.strip() or esecutrice.piva.strip()):
+        p_exec = doc.add_paragraph()
+        p_exec.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        r = p_exec.add_run("DITTA ESECUTRICE")
+        r.bold = True
+        elm.addnext(p_exec._p); elm = p_exec._p
+        for line in [
+            esecutrice.nome.strip(),
+            esecutrice.indirizzo.strip(),
+            (f"P.IVA: {esecutrice.piva.strip()}" if esecutrice.piva.strip() else ""),
+        ]:
+            if not line:
+                continue
+            pp = doc.add_paragraph(line)
+            pp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            elm.addnext(pp._p); elm = pp._p
 
-    # Ora sposta tutti i paragrafi appena creati in testa (in ordine)
-    # Raccogliamo gli ultimi N elementi aggiunti (da p_title fino a pb)
-    new_elems = []
-    # gli elementi sono stati aggiunti in fondo al body
-    # prendiamo dall'ultimo page break paragraph fino al titolo (che è prima)
-    # più semplice: individua riferimenti e sposta in ordine
-    for p in [p_title, p_sub, p_site, p_comm, p_date, p_proj, pb]:
-        new_elems.append(p._p)
+    pb = doc.add_page_break()
 
-    # In realtà abbiamo anche righe progettista create via add_paragraph in mezzo:
-    # le troviamo tra p_proj e pb nel body: prendiamo tutti gli elementi dal p_title al pb
-    # usando posizione in body
+    # sposta blocco cover in testa
     body_list = list(body)
     i0 = body_list.index(p_title._p)
     i1 = body_list.index(pb._p)
     elems = body_list[i0:i1+1]
-    # rimuovi e reinserisci in testa
     for e in elems:
         body.remove(e)
     for e in reversed(elems):
         body.insert(0, e)
 
 
-def _insert_allegati(doc: Document, marker: str, allegati: List[AllegatoItem]):
-    p = _find_paragraph_with_marker(doc, marker)
-    if not p or not allegati:
-        return
-    _wipe_paragraph_text(p)
-    p.add_run("Allegati (schede tecniche):").bold = True
-    elm = p._p
-    for a in allegati:
-        line = f"- {a.filename}"
-        bp = doc.add_paragraph(line)
-        elm.addnext(bp._p)
-        elm = bp._p
-
-        # Se è DOCX, appendi contenuto come "Appendice"
-        if a.kind == "docx":
-            try:
-                sub = Document(io.BytesIO(a.content))
-                # separatore
-                sep = doc.add_paragraph(f"--- Contenuto allegato: {a.filename} ---")
-                sep.runs[0].italic = True
-                elm.addnext(sep._p); elm = sep._p
-                for sp in sub.paragraphs:
-                    if sp.text.strip():
-                        ap = doc.add_paragraph(sp.text)
-                        elm.addnext(ap._p); elm = ap._p
-            except Exception:
-                pass
-
-
+# ----------------- main -----------------
 def generate_docx_bytes(
     template: Union[Path, bytes],
     data: RelazioneData,
     progettista: ProgettistaData,
+    esecutrice: Optional[EsecutriceData] = None,
     colonnine: Optional[List[ColonninaItem]] = None,
     photos: Optional[List[PhotoItem]] = None,
     diagram_bytes: Optional[bytes] = None,
@@ -333,17 +390,19 @@ def generate_docx_bytes(
     else:
         doc = Document(str(template))
 
-    # 1) Cover pulita (migliora la cover page)
-    _insert_cover(doc, data, progettista)
+    _insert_cover(doc, data, progettista, esecutrice)
 
-    # 2) Sostituzioni base
     _replace_text_everywhere(doc, build_mapping(data))
 
-    # 3) Layout descrittivo / colonnine / allegati / immagini
     if colonnine:
         lines = [f"n. {c.quantita} — {c.descrizione}" for c in colonnine]
         _insert_bullets(doc, "{{COLONNINE}}", lines, heading="Colonnine previste")
+
+    # Layout: ora ha fallback anche senza placeholder
     _insert_layout_text(doc, "{{LAYOUT_DESCRITTIVO}}", data.layout_incluso, data.layout_escluso)
+
+    if esecutrice:
+        _insert_esecutrice_placeholder(doc, "{{DITTA_ESECUTRICE}}", esecutrice)
 
     if diagram_bytes:
         _insert_diagram(doc, "{{DIAGRAMMA_IMPIANTO}}", diagram_bytes)

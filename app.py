@@ -6,9 +6,20 @@ from pathlib import Path
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
+from docx import Document
+import io
+
+def template_has_marker(template_bytes: bytes, marker: str) -> bool:
+    try:
+        d = Document(io.BytesIO(template_bytes))
+        return any(marker in (p.text or "") for p in d.paragraphs)
+    except Exception:
+        return False
+
+
 from generator import (
     PhotoItem, ColonninaItem, AllegatoItem,
-    ProgettistaData, RelazioneData, generate_docx_bytes
+    ProgettistaData, EsecutriceData, RelazioneData, generate_docx_bytes
 )
 
 APP_DIR = Path(__file__).parent
@@ -61,6 +72,12 @@ with st.sidebar:
     progettista_piva = st.text_input("P.IVA", value=profile.get("progettista_piva", "14572980960"))
 
     st.divider()
+    st.header("Ditta esecutrice")
+    esecutrice_nome = st.text_input("Nome / Ragione sociale", value=profile.get("esecutrice_nome", ""))
+    esecutrice_indirizzo = st.text_input("Indirizzo", value=profile.get("esecutrice_indirizzo", ""))
+    esecutrice_piva = st.text_input("P.IVA", value=profile.get("esecutrice_piva", ""))
+
+    st.divider()
     st.header("Dati anagrafici")
     luogo = st.text_input("Luogo (es. Busnago)", value=profile.get("luogo", "Busnago"))
     data = st.date_input("Data", value=dt.date.today())
@@ -101,6 +118,9 @@ with st.sidebar:
                 "progettista_cell": progettista_cell,
                 "progettista_email": progettista_email,
                 "progettista_piva": progettista_piva,
+                "esecutrice_nome": esecutrice_nome,
+                "esecutrice_indirizzo": esecutrice_indirizzo,
+                "esecutrice_piva": esecutrice_piva,
                 "luogo": luogo,
                 "committente_nome": committente_nome,
                 "sito_indirizzo": sito_indirizzo,
@@ -128,7 +148,8 @@ with st.sidebar:
         st.success("Template caricato (in memoria).")
 
     st.caption(
-        "Placeholder richiesti nel template:\n"
+        "Placeholder nel template:\n"
+        "- {{DITTA_ESECUTRICE}} (opzionale)\n"
         "- {{LAYOUT_DESCRITTIVO}}\n"
         "- {{COLONNINE}}\n"
         "- {{FOTO_GALLERY}}\n"
@@ -144,7 +165,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 
 with tab2:
     st.subheader("Colonnine (multiplo)")
-    st.write("Aggiungi una o più colonnine. Ogni riga sarà inserita nel documento come elenco.")
     c1, c2 = st.columns([3, 1])
     with c1:
         descr = st.text_input("Descrizione colonnina (modello, potenza, connettori, note)", value="")
@@ -175,15 +195,14 @@ with tab2:
 
 with tab5:
     st.subheader("Schede tecniche (upload)")
-    st.write("Carica una o più schede tecniche (DOCX/PDF). Nel documento verranno elencate; se carichi DOCX, il testo viene anche aggiunto in appendice.")
-    ups = st.file_uploader("Carica schede tecniche", type=["pdf", "docx"], accept_multiple_files=True)
+    ups = st.file_uploader("Carica schede tecniche (DOCX/PDF)", type=["pdf", "docx"], accept_multiple_files=True)
     if ups:
         existing = {a.filename for a in st.session_state.allegati}
         added = 0
         for u in ups:
             if u.name in existing:
                 continue
-            kind = "pdf" if u.type == "application/pdf" or u.name.lower().endswith(".pdf") else "docx"
+            kind = "pdf" if u.name.lower().endswith(".pdf") else "docx"
             st.session_state.allegati.append(AllegatoItem(filename=u.name, content=u.getvalue(), kind=kind))
             added += 1
         if added:
@@ -264,13 +283,20 @@ with tab4:
 
 with tab1:
     st.subheader("Generazione & Download")
-    st.info(
-        "Questa versione genera una **cover pulita** automaticamente con i dati del progettista.\n\n"
-        "Se nel template esiste già una cover grafica (forme Word), conviene **rimuovere la prima pagina** dal template."
-    )
+    st.info("La cover include Progettista e (se compilata) la Ditta esecutrice.")
+
+    
+    missing = []
+    for m in ["{{LAYOUT_DESCRITTIVO}}","{{COLONNINE}}","{{FOTO_GALLERY}}","{{DIAGRAMMA_IMPIANTO}}","{{ALLEGATI_SCHEDA_TECNICA}}","{{DITTA_ESECUTRICE}}"]:
+        if not template_has_marker(st.session_state.template_bytes, m):
+            missing.append(m)
+    if missing:
+        st.caption("Nel template mancano questi placeholder (alcune sezioni useranno fallback o non verranno inserite): " + ", ".join(missing))
+
 
     st.warning(
-        "Placeholder richiesti nel template:\n"
+        "Placeholder nel template:\n"
+        "- {{DITTA_ESECUTRICE}} (opzionale)\n"
         "- {{LAYOUT_DESCRITTIVO}}\n"
         "- {{COLONNINE}}\n"
         "- {{FOTO_GALLERY}}\n"
@@ -288,6 +314,12 @@ with tab1:
             email=progettista_email,
             piva=progettista_piva,
         )
+        esecutrice = EsecutriceData(
+            nome=esecutrice_nome,
+            indirizzo=esecutrice_indirizzo,
+            piva=esecutrice_piva,
+        )
+
         data_obj = RelazioneData(
             luogo_data=luogo_data,
             committente_nome=committente_nome,
@@ -308,6 +340,7 @@ with tab1:
             template=st.session_state.template_bytes,
             data=data_obj,
             progettista=progettista,
+            esecutrice=esecutrice,
             colonnine=st.session_state.colonnine,
             photos=st.session_state.photos,
             diagram_bytes=st.session_state.diagram_bytes,

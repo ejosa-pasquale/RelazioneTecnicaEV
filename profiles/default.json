@@ -21,5 +21,8 @@
   "progettista_email": "pasquale.senese@ingpec.eu",
   "progettista_piva": "14572980960",
   "layout_incluso": "Fornitura e posa linea di alimentazione, protezioni e colonnine di ricarica secondo progetto.",
-  "layout_escluso": "Opere murarie, ripristini, pratiche con il distributore, opere edili non esplicitamente indicate."
+  "layout_escluso": "Opere murarie, ripristini, pratiche con il distributore, opere edili non esplicitamente indicate.",
+  "esecutrice_nome": "",
+  "esecutrice_indirizzo": "",
+  "esecutrice_piva": ""
 }
