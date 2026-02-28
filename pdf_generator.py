@@ -59,7 +59,7 @@ def _meaningful(value: Any) -> bool:
     }
     if low in bad:
         return False
-    if "xxxx" in low:
+    if "xxxx" in low or "inserire" in low or "da compil" in low or "da defin" in low:
         return False
     return True
 
@@ -122,15 +122,152 @@ class _NumberedCanvas(canvas.Canvas):
 
 
 def _build_indice_items(_: Dict[str, Any]) -> List[str]:
-    # Struttura capitoli "editoriale" (come nel template campione)
+    # Struttura capitoli "editoriale". L'indice è volutamente sintetico:
+    # i sotto-paragrafi vengono resi nel testo solo se significativi.
     return [
         "CAPITOLO 1: Premessa",
-        "CAPITOLO 2: Riferimenti Legislativi e normativi",
+        "CAPITOLO 2: Riferimenti legislativi e normativi",
         "CAPITOLO 3: Criteri di progetto degli impianti",
-        "CAPITOLO 4: Soluzione progettuale adottata",
-        "CAPITOLO 5: Ulteriori indicazioni",
-        "CAPITOLO 6: Allegati",
+        "CAPITOLO 4: Soluzione progettuale adottata (dati tecnici, EVSE, quadri e linee)",
+        "CAPITOLO 5: Sicurezza, verifiche e manutenzione",
+        "CAPITOLO 6: Allegati e documentazione",
     ]
+
+
+def _evse_table(data: Dict[str, Any], styles) -> Optional[Table]:
+    evse = data.get("evse") or []
+    # drop righe vuote (Marca/Modello entrambi non significativi)
+    filtered = []
+    for r in evse:
+        marca = str(r.get("Marca", "")).strip()
+        modello = str(r.get("Modello", "")).strip()
+        if not _meaningful(marca) and not _meaningful(modello):
+            continue
+        filtered.append(r)
+    if not filtered:
+        return None
+
+    th = ParagraphStyle("evth", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
+    tc = ParagraphStyle("evtc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
+
+    tdata = [[
+        _p("Tipo", th),
+        _p("Marca/Modello", th),
+        _p("Punti", th),
+        _p("Potenza", th),
+        _p("Alim.", th),
+        _p("Connettore/Modo", th),
+        _p("IP/IK", th),
+        _p("RCD", th),
+        _p("Note", th),
+    ]]
+    for r in filtered:
+        marca = str(r.get('Marca', '')).strip()
+        modello = str(r.get('Modello', '')).strip()
+        marca_modello = (f"{marca} {modello}").strip()
+        tdata.append([
+            _p(str(r.get("Tipo", "")), tc),
+            _p(marca_modello, tc),
+            _p(str(r.get("N. punti", "")), tc),
+            _p(f"{r.get('Potenza (kW)','')} kW", tc),
+            _p(str(r.get("Alimentazione", "")), tc),
+            _p(f"{r.get('Connettore','')} / {r.get('Modo ricarica','')}", tc),
+            _p(str(r.get("IP/IK", "")), tc),
+            _p(str(r.get("RCD richiesto", "")), tc),
+            _p(str(r.get("Note", "")), tc),
+        ])
+
+    tbl = Table(
+        tdata,
+        colWidths=[14 * mm, 35 * mm, 10 * mm, 16 * mm, 16 * mm, 26 * mm, 16 * mm, 28 * mm, 23 * mm],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    return tbl
+
+
+def _photo_flowables(data: Dict[str, Any]) -> List[Flowable]:
+    photos = data.get("foto") or []
+    # massimo 6 per non gonfiare il PDF
+    photos = [p for p in photos if isinstance(p, dict) and p.get("bytes")][:6]
+    if not photos:
+        return []
+
+    flows: List[Flowable] = []
+    flows.append(Spacer(1, 4))
+    # tabella 2 colonne
+    cells = []
+    for p in photos:
+        try:
+            img = ImageReader(BytesIO(p["bytes"]))
+            iw, ih = img.getSize()
+            # fit in box
+            box_w = 80 * mm
+            box_h = 55 * mm
+            scale = min(box_w / iw, box_h / ih)
+            w = iw * scale
+            h = ih * scale
+            # canvas Image can't be directly inserted; use reportlab.platypus Image
+            from reportlab.platypus import Image as RLImage
+
+            im = RLImage(BytesIO(p["bytes"]), width=w, height=h)
+            caption = Paragraph(escape(p.get("name", "")), getSampleStyleSheet()["BodyText"])
+            cells.append([im, caption])
+        except Exception:
+            continue
+
+    # build rows
+    row = []
+    rows = []
+    for item in cells:
+        row.append(item)
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        # pad
+        row.append([Paragraph("", getSampleStyleSheet()["BodyText"])])
+        rows.append(row)
+
+    # convert nested lists into Table with inner tables per cell
+    cell_flow_rows = []
+    for r in rows:
+        out_row = []
+        for cell in r:
+            if isinstance(cell, list) and len(cell) == 2:
+                inner = Table([[cell[0]], [cell[1]]], colWidths=[80 * mm])
+                inner.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]))
+                out_row.append(inner)
+            else:
+                out_row.append(Paragraph("", getSampleStyleSheet()["BodyText"]))
+        cell_flow_rows.append(out_row)
+
+    tbl = Table(cell_flow_rows, colWidths=[86 * mm, 86 * mm], hAlign="LEFT")
+    tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+        ("TOPPADDING", (0, 0), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+    ]))
+    flows.append(tbl)
+    flows.append(Spacer(1, 6))
+    return flows
 
 
 
@@ -565,6 +702,21 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(_p(progettista_blocco, styles["BodyText"]))
         story.append(Spacer(1, 10))
 
+    # 2.3) Impresa installatrice (se fornita)
+    impresa = data.get("impresa", "")
+    if _meaningful(impresa):
+        story.append(_p("IMPRESA INSTALLATRICE (dati dichiarati)", h2))
+        imp_rows = [
+            ["Ragione sociale", impresa],
+            ["Sede legale", data.get("impresa_sede", "")],
+            ["P.IVA / C.F.", data.get("impresa_piva", "")],
+            ["CCIAA / REA", data.get("impresa_rea", "")],
+            ["Responsabile tecnico", data.get("impresa_resp", "")],
+            ["Recapiti", data.get("impresa_cont", "")],
+        ]
+        story.append(_kv_table([["Dato", "Valore"]] + imp_rows, [55 * mm, 119 * mm]))
+        story.append(Spacer(1, 10))
+
     # Nota calcoli
     disclaimer = data.get(
         "disclaimer_calcoli",
@@ -592,7 +744,26 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(_p(criterio, styles["BodyText"]))
         story.append(Spacer(1, 10))
 
+
+    dati_proj = data.get("dati_progettazione", "")
+    if _meaningful(dati_proj):
+        story.append(_p("3.0 Dati raccolti in fase di progettazione (rilievo e presupposti)", h3))
+        story.append(_p(dati_proj, styles["BodyText"]))
+        story.append(Spacer(1, 10))
+
     story.append(_p("CAPITOLO 4 - SOLUZIONE PROGETTUALE ADOTTATA", h2))
+
+    loc = data.get("localizzazione", "")
+    if _meaningful(loc):
+        story.append(_p("4.0 Localizzazione dell'impianto", h3))
+        story.append(_p(loc, styles["BodyText"]))
+        story.append(Spacer(1, 8))
+
+    lay = data.get("layout", "")
+    if _meaningful(lay):
+        story.append(_p("4.0.1 Layout d'impianto", h3))
+        story.append(_p(lay, styles["BodyText"]))
+        story.append(Spacer(1, 8))
 
     dati_tecnici = data.get("dati_tecnici", "")
     if _meaningful(dati_tecnici):
@@ -605,6 +776,12 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(_p("4.2 Descrizione impianto e opere", h3))
         story.append(_p(descr, styles["BodyText"]))
         story.append(Spacer(1, 8))
+
+    ev_tbl = _evse_table(data, styles)
+    if ev_tbl is not None:
+        story.append(_p("4.2.1 Infrastruttura di ricarica EV (sintesi)", h3))
+        story.append(ev_tbl)
+        story.append(Spacer(1, 10))
 
     conf = data.get("confini", "")
     if _meaningful(conf):
@@ -693,9 +870,37 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(Spacer(1, 8))
 
     ver = data.get("verifiche", "")
-    if _meaningful(ver):
+    ver_tab = data.get("verifiche_tabella") or []
+    if _meaningful(ver) or ver_tab:
         story.append(_p("5.2 Verifiche, prove e collaudi", h3))
-        story.append(_p(ver, styles["BodyText"]))
+        if _meaningful(ver):
+            story.append(_p(ver, styles["BodyText"]))
+            story.append(Spacer(1, 6))
+        if ver_tab:
+            tdata = [[
+                _p("Prova / Verifica", th),
+                _p("Esito", th),
+                _p("Strumento", th),
+                _p("Note", th),
+            ]]
+            for r in ver_tab:
+                tdata.append([
+                    _p(str(r.get("Prova / Verifica","")), tc),
+                    _p(str(r.get("Esito","")), tc),
+                    _p(str(r.get("Strumento","")), tc),
+                    _p(str(r.get("Note","")), tc),
+                ])
+            tbl = Table(tdata, colWidths=[60*mm, 20*mm, 35*mm, 55*mm], repeatRows=1, hAlign="LEFT")
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]))
+            story.append(tbl)
         story.append(Spacer(1, 8))
 
     man = data.get("manutenzione", "")
@@ -705,9 +910,43 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(Spacer(1, 8))
 
     allg = data.get("allegati", "")
-    if _meaningful(allg):
-        story.append(_p("CAPITOLO 6 - ALLEGATI", h2))
-        story.append(_p(allg, styles["BodyText"]))
+    checklist = data.get("checklist_documentale") or []
+    photo_flows = _photo_flowables(data)
+    if _meaningful(allg) or checklist or photo_flows:
+        story.append(_p("CAPITOLO 6 - ALLEGATI E DOCUMENTAZIONE", h2))
+
+        if checklist:
+            story.append(_p("6.0 Checklist documentale (D.M. 37/08, D.P.R. 462/2001 se applicabile)", h3))
+            tdata = [[
+                _p("Documento / Elaborato", th),
+                _p("Stato", th),
+                _p("Note", th),
+            ]]
+            for r in checklist:
+                tdata.append([
+                    _p(str(r.get("Documento / Elaborato","")), tc),
+                    _p(str(r.get("Stato","")), tc),
+                    _p(str(r.get("Note","")), tc),
+                ])
+            tbl = Table(tdata, colWidths=[95*mm, 25*mm, 50*mm], repeatRows=1, hAlign="LEFT")
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ]))
+            story.append(tbl)
+            story.append(Spacer(1, 8))
+
+        if _meaningful(allg):
+            story.append(_p(allg, styles["BodyText"]))
+        if photo_flows:
+            story.append(Spacer(1, 8))
+            story.append(_p("6.1 Documentazione fotografica (estratto)", h3))
+            story.extend(photo_flows)
 
     # Firma finale (facoltativa)
     luogo_f = data.get("luogo_firma", "")

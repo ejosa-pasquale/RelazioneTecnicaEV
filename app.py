@@ -5,6 +5,39 @@ from datetime import date
 from calcoli import corrente_da_potenza, caduta_tensione, verifica_tt_ra_idn, zs_massima_tn
 from pdf_generator import genera_pdf_relazione_bytes
 
+
+def _meaningful(value) -> bool:
+    if value is None:
+        return False
+    s = str(value).strip()
+    if not s:
+        return False
+    low = s.lower()
+    bad = {"non pertinente","non applicabile","n/a","na","—","-","nessuna","nessuna / non applicabile"}
+    if low in bad:
+        return False
+    if "xxxx" in low or "inserire" in low:
+        return False
+    return True
+
+def _clean_records(records, require_keys=None):
+    """Rimuove righe vuote e valori non significativi.
+    - require_keys: se specificato, la riga viene mantenuta solo se almeno una di queste chiavi è significativa.
+    """
+    cleaned=[]
+    for r in (records or []):
+        rr={}
+        for k,v in r.items():
+            if _meaningful(v):
+                rr[k]=v
+        if not rr:
+            continue
+        if require_keys:
+            if not any(_meaningful(r.get(k)) for k in require_keys):
+                continue
+        cleaned.append(rr)
+    return cleaned
+
 st.set_page_config(page_title="Relazione Tecnica DiCo – Impianti Elettrici", layout="wide")
 
 st.title("Relazione Tecnica - Impianto Elettrico (Allegato alla DiCo)")
@@ -33,21 +66,21 @@ st.subheader("Dati identificativi documento")
 
 c1, c2, c3 = st.columns(3)
 with c1:
-    committente = st.text_input("Committente", "XXXX (Inserire)")
-    luogo = st.text_input("Luogo di installazione (indirizzo completo)", "XXXX (Inserire indirizzo completo)")
-    oggetto = st.text_input("Oggetto intervento (descrizione sintetica)", "XXXX (Inserire descrizione sintetica dell’intervento)")
+    committente = st.text_input("Committente", "")
+    luogo = st.text_input("Luogo di installazione (indirizzo completo)", "")
+    oggetto = st.text_input("Oggetto intervento (descrizione sintetica)", "")
 with c2:
     tipologia = st.selectbox("Tipologia impianto", ["Nuova realizzazione", "Ampliamento", "Trasformazione", "Manutenzione straordinaria"], index=3)
     sistema = st.selectbox("Sistema di distribuzione", ["TT", "TN-S", "TN-C-S", "IT"], index=0)
     alimentazione = st.selectbox("Alimentazione", ["Monofase 230 V", "Trifase 400 V"], index=1)
 with c3:
     tensione = st.text_input("Tensione/Frequenza", "230/400 V - 50 Hz")
-    potenza_disp_kw = st.text_input("Potenza impegnata / disponibile", "XXXX (Inserire)")
-    cod_progetto = st.text_input("Cod. progetto", "XXXX (Inserire)")
-    nome_progetto = st.text_input("Nome progetto", "XXXX (Inserire)")
+    potenza_disp_kw = st.text_input("Potenza impegnata / disponibile", "")
+    cod_progetto = st.text_input("Cod. progetto", "")
+    nome_progetto = st.text_input("Nome progetto", "")
     cover_style = st.selectbox("Stile cover", ["Engineering (title-block)", "A riquadri (legacy)"], index=0)
 
-    n_doc = st.text_input("N. documento", "XXXX (Inserire)")
+    n_doc = st.text_input("N. documento", "")
     revisione = st.text_input("Revisione", "00")
     data_doc = st.date_input("Data", value=date.today())
 
@@ -63,6 +96,51 @@ timbro_bytes = timbro_file.getvalue() if timbro_file else None
 
 st.divider()
 
+# =========================
+# SEZIONI SPECIFICHE EV / DOCUMENTAZIONE
+# =========================
+st.subheader("Infrastruttura di ricarica EV (se applicabile)")
+st.caption("Compila almeno marca/modello/potenza. Se non pertinente, elimina le righe o lascia campi vuoti.")
+
+default_evse = pd.DataFrame([
+    {
+        "Tipo": "Wallbox",
+        "Marca": "",
+        "Modello": "",
+        "N. punti": "",
+        "Potenza (kW)": "",
+        "Alimentazione": "Monofase",
+        "Connettore": "Tipo 2",
+        "Modo ricarica": "Mode 3",
+        "IP/IK": "IPXX / IKXX",
+        "RCD richiesto": "Tipo A 30mA + RDC-DD 6mA / Tipo B (se previsto)",
+        "Note": "",
+    }
+])
+
+evse_df = st.data_editor(default_evse, num_rows="dynamic", use_container_width=True, key="evse")
+
+st.subheader("Localizzazione, layout e documentazione fotografica")
+c1, c2 = st.columns(2)
+with c1:
+    localizzazione = st.text_area(
+        "Localizzazione dell'impianto (descrizione sintetica)",
+        "",
+        height=110,
+    )
+with c2:
+    layout = st.text_area(
+        "Layout d'impianto (elementi principali)",
+        ": quadro/i, linee principali, protezioni, posa, posizione wallbox/colonnina).",
+        height=110,
+    )
+
+foto_files = st.file_uploader(
+    "Foto (JPG/PNG) - opzionale (consigliate max 6)",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True,
+)
+
 st.divider()
 
 # =========================
@@ -73,12 +151,12 @@ st.subheader("Soggetti coinvolti")
 c1, c2 = st.columns(2)
 with c1:
     st.markdown("**Impresa installatrice**")
-    impresa = st.text_input("Ragione sociale", "XXXX (Inserire)")
-    impresa_sede = st.text_input("Sede legale", "XXXX (Inserire)")
-    impresa_piva = st.text_input("P.IVA / C.F.", "XXXX (Inserire)")
-    impresa_rea = st.text_input("N. iscrizione CCIAA / REA", "XXXX (Inserire)")
-    impresa_resp = st.text_input("Responsabile tecnico", "XXXX (Inserire)")
-    impresa_cont = st.text_input("Recapiti", "XXXX (Inserire)")
+    impresa = st.text_input("Ragione sociale", "")
+    impresa_sede = st.text_input("Sede legale", "")
+    impresa_piva = st.text_input("P.IVA / C.F.", "")
+    impresa_rea = st.text_input("N. iscrizione CCIAA / REA", "")
+    impresa_resp = st.text_input("Responsabile tecnico", "")
+    impresa_cont = st.text_input("Recapiti", "")
 with c2:
     st.markdown("**Progettista / Tecnico redattore**")
     progettista_blocco = st.text_area(
@@ -103,9 +181,9 @@ st.subheader("Dati tecnici minimi (da compilare)")
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    pod = st.text_input("POD / punto di consegna", "XXXX (Inserire)")
+    pod = st.text_input("POD / punto di consegna", "")
 with c2:
-    contatore_ubi = st.text_input("Contatore ubicato in", "XXXX (Inserire)")
+    contatore_ubi = st.text_input("Contatore ubicato in", "")
 with c3:
     potenza_prev_kw = st.number_input("Potenza prevista/servita (kW) – per stima Ib", min_value=0.5, max_value=500.0, value=6.0, step=0.5)
 with c4:
@@ -121,7 +199,7 @@ ambienti = st.multiselect(
 )
 amb_altro = ""
 if "Altro" in ambienti:
-    amb_altro = st.text_input("Specificare 'Altro'", "XXXX (Inserire)")
+    amb_altro = st.text_input("Specificare 'Altro'", "")
 
 # Campi per eliminare XXXX in premessa/norme
 st.subheader("Fonti dati e prescrizioni (per evitare 'XXXX' nel PDF)")
@@ -131,6 +209,68 @@ with c1:
 with c2:
     prescrizioni_enti = st.text_input("Prescrizioni Enti/Autorità locali (se presenti)", "Nessuna / Non applicabile")
 
+
+
+st.divider()
+
+# =========================
+# DATI DA RACCOGLIERE IN FASE DI PROGETTAZIONE (RILIEVO)
+# =========================
+st.subheader("Dati raccolti in fase di progettazione (rilievo e ipotesi di progetto)")
+st.caption("Questi dati servono a rendere la relazione più completa e coerente con quanto normalmente richiesto in sede di progetto/DiCo (rilievi, vincoli, presupposti).")
+
+c1, c2, c3 = st.columns(3)
+with c1:
+    data_sopralluogo = st.date_input("Data sopralluogo (se effettuato)", value=date.today())
+    referente = st.text_input("Referente in sito / contatto", "")
+with c2:
+    documenti_disponibili = st.multiselect(
+        "Documenti disponibili (rilievo)",
+        ["Planimetrie/lay-out", "Schema unifilare esistente", "DiCo/DiRi preesistente", "Contratto/condizioni di fornitura", "Schede tecniche EVSE", "Altro"],
+        default=["Planimetrie/lay-out"],
+    )
+    doc_altro = ""
+    if "Altro" in documenti_disponibili:
+        doc_altro = st.text_input("Specificare 'Altro' (documenti)", "")
+with c3:
+    vincoli = st.multiselect(
+        "Vincoli/condizioni al contorno",
+        ["Condominio (regolamento/autorimessa)", "Vincoli edilizi/architettonici", "Ambiente esterno (IP/IK)", "Ambiente con rischio incendio", "VV.F. / DPR 151/2011", "Nessuno", "Altro"],
+        default=["Nessuno"],
+    )
+    vincoli_note = st.text_input("Note vincoli (se utili)", "—")
+
+c1, c2 = st.columns(2)
+with c1:
+    icc_presunta = st.text_input("Corrente di cortocircuito presunta a monte (se nota)", "N.D. / da acquisire")
+    protezione_monte = st.text_input("Protezione a monte / dispositivo generale (se noto)", "N.D. / da acquisire")
+    impianto_esistente = st.selectbox("Impianto esistente", ["Sì (verificato)", "Sì (non verificato)", "No / Nuovo"], index=0)
+with c2:
+    ra_misurata = st.text_input("Resistenza di terra Ra (Ω) misurata/attesa (se nota)", "N.D. / da misurare")
+    percorsi_posa = st.text_area("Percorsi cavi e modalità posa (rilievo sintetico)", ": canalizzazioni/tubazioni/passerelle, attraversamenti, ecc.)", height=90)
+
+note_progettazione = st.text_area("Note di progettazione (presupposti, ipotesi, criticità)", "—", height=100)
+
+# Testo pronto per PDF
+doc_list = [d for d in documenti_disponibili if d != "Altro"]
+if doc_altro.strip():
+    doc_list.append(doc_altro.strip())
+
+vincoli_list = [v for v in vincoli if v != "Altro"]
+if "Altro" in vincoli and vincoli_note.strip() and vincoli_note.strip() != "—":
+    vincoli_list.append(vincoli_note.strip())
+
+dati_progettazione_txt = f"""Rilievo / progettazione:
+- Sopralluogo: {data_sopralluogo.strftime('%d/%m/%Y')} – Referente: {referente}
+- Documenti disponibili: {", ".join(doc_list) if doc_list else "N.D."}
+- Vincoli/condizioni al contorno: {", ".join(vincoli_list) if vincoli_list else "N.D."}
+- Corrente di cortocircuito presunta a monte: {icc_presunta}
+- Protezione a monte / dispositivo generale: {protezione_monte}
+- Impianto esistente: {impianto_esistente}
+- Ra (Ω) misurata/attesa: {ra_misurata}
+- Percorsi/posa (sintesi): {percorsi_posa}
+- Note: {note_progettazione}
+"""
 
 # =========================
 # CRITERIO DI PROGETTO (ESTESO - da relazione tecnico-specialistica)
@@ -157,14 +297,14 @@ st.subheader("Confini dell’intervento e interfacce")
 
 c1, c2 = st.columns(2)
 with c1:
-    compresi = st.text_area("L’intervento comprende", "XXXX (Inserire elenco sintetico delle opere incluse).", height=120)
+    compresi = st.text_area("L’intervento comprende", " elenco sintetico delle opere incluse).", height=120)
 with c2:
-    esclusi = st.text_area("Sono esclusi", "XXXX (Inserire, es. parti preesistenti non modificate, linee a monte, apparecchiature non comprese).", height=120)
+    esclusi = st.text_area("Sono esclusi", ", es. parti preesistenti non modificate, linee a monte, apparecchiature non comprese).", height=120)
 
 integrazione = st.selectbox("Integrazione con impianto esistente", ["Sì", "No"], index=0)
 integrazione_note = ""
 if integrazione == "Sì":
-    integrazione_note = st.text_area("Descrizione e condizioni riscontrate/limiti di intervento", "XXXX (Inserire).", height=90)
+    integrazione_note = st.text_area("Descrizione e condizioni riscontrate/limiti di intervento", ").", height=90)
 
 st.divider()
 
@@ -174,7 +314,7 @@ st.divider()
 st.subheader("Quadri elettrici e distribuzione (tabella sintetica)")
 
 default_quadri = pd.DataFrame([
-    {"Quadro":"QG", "Ubicazione":"XXXX (Inserire)", "IP":"XX", "Interruttore generale (tipo/In)":"XXXX (Inserire)", "Differenziale generale (tipo/Idn, se presente)":"XXXX (Inserire)"},
+    {"Quadro":"QG", "Ubicazione":")", "IP":"XX", "Interruttore generale (tipo/In)":")", "Differenziale generale (tipo/Idn, se presente)":")"},
 ])
 quadri_df = st.data_editor(default_quadri, num_rows="dynamic", use_container_width=True, key="quadri")
 
@@ -189,7 +329,7 @@ st.caption("Per ciascun circuito: scegli **Tipo cavo (FS17/FG17/FG16OR16/FG16OM1
            "Il calcolo automatico mostra ΔV% e un esito sintetico.")
 
 default_linee = pd.DataFrame([
-    {"Circuito/Linea":"L1", "Destinazione/Utilizzo":"Prese", "Potenza_kW":2.0, "Posa":"XXXX", "Lunghezza_m":25,
+    {"Circuito/Linea":"L1", "Destinazione/Utilizzo":"Prese", "Potenza_kW":2.0, "Posa": "", "Lunghezza_m":25,
      "Tipo_cavo":"FG16OM16", "Formazione":"3G", "Sezione_mm2":2.5,
      "Protezione (MT/MTD)":"MT 16A curva C", "Curva":"C", "In_A":16,
      "Differenziale (tipo/Idn)":"Tipo A 30mA", "Tipo_diff":"A", "Idn_mA":30,
@@ -256,7 +396,7 @@ st.subheader("Sicurezza elettrica, terra, SPD (sintesi)")
 c1, c2 = st.columns(2)
 with c1:
     terra_cfg = st.selectbox("Configurazione impianto di terra", ["Nuovo", "Esistente verificato", "Esistente non oggetto di intervento (da motivare)"], index=1)
-    dispersore = st.text_input("Dispersore (descrizione)", "XXXX (Inserire)")
+    dispersore = st.text_input("Dispersore (descrizione)", "")
     equipot = st.selectbox("Collegamenti equipotenziali principali", ["Presenti", "Parziali", "Assenti (da adeguare/indicare)"], index=0)
 with c2:
     spd_esito = st.selectbox("Protezione contro sovratensioni (SPD) – esito", ["Non previsto", "Previsto", "Presente preesistente"], index=0)
@@ -271,7 +411,7 @@ with c1:
 with c2:
     cpi = st.selectbox("CPI / SCIA antincendio", ["Non pertinente", "Presente", "Non presente", "In corso"], index=0)
 with c3:
-    vvf_note = st.text_input("Note VV.F. (se pertinente)", "—")
+    vvf_note = st.text_input("Note VV.F. (se pertinente)", "")
 
 st.divider()
 
@@ -281,16 +421,39 @@ st.divider()
 st.subheader("Verifiche, prove e collaudi (registro sintetico)")
 
 ver_df = pd.DataFrame([
-    {"Prova / Verifica":"Esame a vista", "Esito":"positivo", "Strumento":"—", "Note":"—"},
-    {"Prova / Verifica":"Continuità PE ed equipotenziale", "Esito":"positivo", "Strumento":"—", "Note":"—"},
-    {"Prova / Verifica":"Resistenza di isolamento", "Esito":"positivo", "Strumento":"—", "Note":"—"},
-    {"Prova / Verifica":"Prova differenziali (Idn/tempo)", "Esito":"positivo", "Strumento":"—", "Note":"—"},
-    {"Prova / Verifica":"Polarità / sequenza fasi (se pertinente)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
-    {"Prova / Verifica":"TT: misura Ra e coordinamento con Idn (se TT)", "Esito":"positivo", "Strumento":"—", "Note":"—"},
-    {"Prova / Verifica":"TN: misura Zs e verifica intervento (se TN)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
-    {"Prova / Verifica":"Altre prove (SPD, emergenza, comandi, ecc.)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Esame a vista", "Esito":"", "Strumento":"", "Note":""},
+    {"Prova / Verifica":"Continuità PE ed equipotenziale", "Esito":"", "Strumento":"", "Note":""},
+    {"Prova / Verifica":"Resistenza di isolamento", "Esito":"", "Strumento":"", "Note":""},
+    {"Prova / Verifica":"Prova differenziali (Idn/tempo)", "Esito":"", "Strumento":"", "Note":""},
+    {"Prova / Verifica":"Polarità / sequenza fasi (se pertinente)", "Esito":"", "Strumento":"", "Note":""},
+    {"Prova / Verifica":"TT: misura Ra e coordinamento con Idn (se TT)", "Esito":"", "Strumento":"", "Note":""},
+    {"Prova / Verifica":"TN: misura Zs e verifica intervento (se TN)", "Esito":"", "Strumento":"", "Note":""},
+    {"Prova / Verifica":"Altre prove (SPD, emergenza, comandi, ecc.)", "Esito":"", "Strumento":"", "Note":""},
 ])
 ver_df = st.data_editor(ver_df, num_rows="dynamic", use_container_width=True, key="verifiche")
+
+st.divider()
+
+
+# =========================
+# CHECKLIST DOCUMENTALE (DM 37/08 - DPR 462/01)
+# =========================
+st.subheader("Checklist documentale (DM 37/08 e adempimenti correlati)")
+st.caption("Compila lo stato degli elaborati/atti da allegare o consegnare. La checklist verrà riportata nel Capitolo 6 del PDF.")
+
+default_check = pd.DataFrame([{"Documento / Elaborato": "", "Stato": "", "Note": ""}])
+
+checklist_df = st.data_editor(
+    default_check,
+    num_rows="dynamic",
+    use_container_width=True,
+    key="checklist",
+    column_config={
+        "Stato": st.column_config.SelectboxColumn(
+            "Stato", options=["", "Presente", "Da produrre", "Non applicabile", "Consigliato"], required=False
+        )
+    }
+)
 
 st.divider()
 
@@ -300,7 +463,7 @@ st.divider()
 st.subheader("Firma (stampa nel PDF)")
 c1, c2, c3 = st.columns(3)
 with c1:
-    luogo_firma = st.text_input("Luogo firma", "XXXX (Inserire)")
+    luogo_firma = st.text_input("Luogo firma", "")
 with c2:
     data_firma = st.date_input("Data firma", value=data_doc)
 with c3:
@@ -562,6 +725,7 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         )
 
     payload = {
+        "revisioni": rev_df.to_dict(orient="records"),
         "committente_nome": committente,
         "impianto_indirizzo": luogo,
         "data": data_doc.strftime("%d/%m/%Y"),
@@ -572,11 +736,22 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "premessa": premessa,
         "norme": norme,
         "criterio_progetto": criterio_testo,
+        "dati_progettazione": dati_progettazione_txt,
+
         "dati_tecnici": dati_tecnici,
         "descrizione_impianto": descrizione_impianto,
         "confini": confini_txt,
         "quadri": quadri_list,
         "linee": linee_list,
+        "evse": evse_df.to_dict(orient="records"),
+        "localizzazione": localizzazione,
+        "layout": layout,
+        "foto": [
+            {"name": f.name, "bytes": f.getvalue()} for f in (foto_files or [])
+            if hasattr(f, "getvalue")
+        ],
+        "checklist_documentale": checklist_df.to_dict(orient="records"),
+        "verifiche_tabella": ver_df.to_dict(orient="records"),
         "sicurezza": sicurezza,
         "verifiche": verifiche,
         "manutenzione": manutenzione,
@@ -599,9 +774,24 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "rev": revisione,
         "revisione": revisione,
         "impresa": impresa,
+        "impresa_sede": impresa_sede,
+        "impresa_piva": impresa_piva,
+        "impresa_rea": impresa_rea,
+        "impresa_resp": impresa_resp,
+        "impresa_cont": impresa_cont,
         "luogo_firma": luogo_firma,
         "data_firma": data_firma.strftime("%d/%m/%Y"),
     }
+
+# --- Pulizia: se un campo non è stato compilato non deve comparire nel PDF (niente "XXXX"/placeholder)
+for k, v in list(payload.items()):
+    if isinstance(v, str) and not _meaningful(v):
+        payload[k] = ""
+# Tabelle/elenchi: rimuove righe non compilate
+payload["evse"] = _clean_records(payload.get("evse"), require_keys=["Potenza (kW)", "Marca", "Modello"])
+payload["checklist_documentale"] = _clean_records(payload.get("checklist_documentale"), require_keys=["Stato"])
+payload["verifiche_tabella"] = _clean_records(payload.get("verifiche_tabella"), require_keys=["Esito", "Note"])
+
 
     pdf_bytes = genera_pdf_relazione_bytes(payload)
     st.success("PDF generato.")
