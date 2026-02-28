@@ -1,103 +1,27 @@
-\
-# Generatore Relazione Progetto Elettrico (Streamlit)
+# Relazione tecnica EV — Streamlit (v11)
 
-Web app Streamlit per inserire i dati di progetto e generare una relazione tecnica **in formato DOCX** a partire da un template.
+Questa versione fa due cose in modo robusto:
 
-> Il template incluso è basato sul DOCX che hai fornito. La generazione avviene tramite sostituzioni testuali nelle parti standard del documento.
-> Nota: eventuali contenuti inseriti in **textbox/forme Word** potrebbero non essere modificabili con `python-docx` e quindi richiedere un template senza textbox oppure un adattamento.
+1) **Crea punti di aggancio nel corpo del testo** (se mancanti) inserendo automaticamente i marker:
+- {{DITTA_ESECUTRICE}}
+- {{LAYOUT_DESCRITTIVO}}
+- {{COLONNINE}}
+- {{FOTO_GALLERY}}
+- {{DIAGRAMMA_IMPIANTO}}
+- {{ALLEGATI_SCHEDA_TECNICA}}
 
-## Avvio in locale
+2) Genera il DOCX popolando **il corpo**:
+- sostituisce placeholder base (es. {{OGGETTO}}, {{COMMITTENTE}}, …) se presenti
+- scrive le sezioni (layout/colonnine/foto/diagramma/allegati) nei punti di aggancio
+- pulisce la sezione Layout (cancella il testo “non pertinente” sotto il titolo e reinserisce Inclusi/Esclusi)
 
+## Uso rapido
 ```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-source .venv/bin/activate
-
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Apri il browser sull'URL mostrato da Streamlit.
-
-## Template
-
-- Template di default: `templates/relazione_base.docx`
-- Puoi caricare un template alternativo dall'app (sidebar), che sovrascrive il file locale.
-
-## Deploy su Streamlit Community Cloud
-
-1. Crea un repo su GitHub e carica questi file.
-2. Vai su Streamlit Community Cloud → **New app**.
-3. Seleziona repo e branch.
-4. **Main file path**: `app.py`
-5. Deploy.
-
-## Struttura progetto
-
-```
-.
-├── app.py
-├── generator.py
-├── requirements.txt
-└── templates
-    └── relazione_base.docx
-```
-
-## Foto e diagramma nel DOCX
-
-Per inserire automaticamente immagini nel documento, apri il template Word (`templates/relazione_base.docx`)
-e aggiungi i seguenti **placeholder** nel punto in cui vuoi che compaiano:
-
-- `{{FOTO_GALLERY}}` → inserisce una griglia di foto (2 colonne) con didascalie
-- `{{DIAGRAMMA_IMPIANTO}}` → inserisce il diagramma dell’impianto (immagine singola)
-
-Poi, dall’app:
-- Tab **Foto di cantiere**: carica immagini + didascalie
-- Tab **Diagramma impianto**: carica un’immagine oppure disegna al volo
-
-## Profili progetto (dati che non cambiano)
-
-Nella sidebar puoi salvare e richiamare un profilo JSON (cartella `profiles/`) per tenere precompilati i dati fissi.
-
-## Fix download (Streamlit Cloud)
-
-Questa versione genera il DOCX **in memoria** (BytesIO) e lo passa direttamente a `st.download_button`,
-così il download funziona anche su ambienti dove il filesystem è **read-only**.
-
-## Template senza logo
-
-Il template di default è `relazione progetto elettrico -no logo.docx` (copiato in `templates/relazione_base.docx`).
-
-## Placeholder nuovi (v4)
-
-Nel template Word inserisci questi placeholder nei punti desiderati:
-
-- `{{LAYOUT_DESCRITTIVO}}` → testo descrittivo (Incluso/Escluso) del layout d’impianto
-- `{{COLONNINE}}` → elenco colonnine (multiplo)
-- `{{ALLEGATI_SCHEDA_TECNICA}}` → elenco allegati schede tecniche (DOCX/PDF)
-- `{{FOTO_GALLERY}}` → galleria foto
-- `{{DIAGRAMMA_IMPIANTO}}` → diagramma impianto
-
-## Cover page
-
-La cover viene generata automaticamente dall’app con i dati del progettista.
-Se il template contiene una cover grafica “difficile” (forme Word), elimina la prima pagina dal template e lascia il resto.
-
-## Ditta esecutrice (v5)
-
-Aggiunta sezione **Ditta esecutrice** con campi:
-- Nome/Ragione sociale
-- Indirizzo
-- P.IVA
-
-Viene mostrata nella **cover** se compilata.  
-In alternativa puoi inserirla nel corpo documento con il placeholder `{{DITTA_ESECUTRICE}}`.
-
-## Template a placeholder (consigliato)
-
-Per popolare **il corpo del testo** in modo affidabile, usa il template:
-- `templates/relazione_template_placeholders.docx`
-
-Contiene token come `{{COMMITTENTE}}`, `{{SITO_INDIRIZZO}}`, `{{OGGETTO}}` ecc. che l’app sostituisce ovunque nel documento (anche in header/footer).
-
-Puoi anche scaricarlo dalla sidebar dell’app.
+## Suggerimento operativo
+- Carica il tuo template DOCX.
+- Clicca **“Prepara template (agganci)”**.
+- Scarica e salva il “template_preparato.docx”: sarà quello che userai sempre.

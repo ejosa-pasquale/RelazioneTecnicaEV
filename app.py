@@ -1,419 +1,248 @@
 \
 import datetime as dt
-import json
+import io
 from pathlib import Path
 
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
-from docx import Document
-import io
-
-def template_has_marker(template_bytes: bytes, marker: str) -> bool:
-    try:
-        d = Document(io.BytesIO(template_bytes))
-        return any(marker in (p.text or "") for p in d.paragraphs)
-    except Exception:
-        return False
-
-
 from generator import (
-    PhotoItem, ColonninaItem, AllegatoItem,
-    ProgettistaData, EsecutriceData, RelazioneData, generate_docx_bytes
+    AllegatoItem,
+    ColonninaItem,
+    EsecutriceData,
+    PhotoItem,
+    ProgettistaData,
+    RelazioneData,
+    generate_document,
+    prepare_template,
 )
 
 APP_DIR = Path(__file__).parent
-DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "relazione_template_placeholders.docx"
-PROFILES_DIR = APP_DIR / "profiles"
+DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "relazione_base_no_logo.docx"
 
-st.set_page_config(page_title="Generatore Relazione Progetto Elettrico", layout="wide")
-st.title("Generatore relazione tecnica (progetto elettrico)")
-st.caption("Compila i campi, aggiungi foto/diagramma/allegati e scarica il DOCX generato.")
+st.set_page_config(page_title="Relazione tecnica EV", layout="wide")
+st.title("Relazione tecnica — Generatore veloce")
+st.caption("Compila → allega foto/diagramma/schede → genera DOCX. L'app crea automaticamente i punti di aggancio nel corpo del testo.")
 
-
-def load_profile(name: str) -> dict:
-    p = PROFILES_DIR / f"{name}.json"
-    if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
-    return {}
-
-def save_profile(name: str, data: dict) -> None:
-    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
-    p = PROFILES_DIR / f"{name}.json"
-    p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
-# ---------- Session state ----------
-if "photos" not in st.session_state:
-    st.session_state.photos = []
-if "diagram_bytes" not in st.session_state:
-    st.session_state.diagram_bytes = None
 if "template_bytes" not in st.session_state:
     st.session_state.template_bytes = DEFAULT_TEMPLATE_PATH.read_bytes()
-if "allegati" not in st.session_state:
-    st.session_state.allegati = []
+if "photos" not in st.session_state:
+    st.session_state.photos = []
+if "diagram" not in st.session_state:
+    st.session_state.diagram = None
 if "colonnine" not in st.session_state:
     st.session_state.colonnine = []
+if "allegati" not in st.session_state:
+    st.session_state.allegati = []
 
-
-# ---------- Sidebar ----------
 with st.sidebar:
-    st.header("Profilo progetto (dati fissi)")
-    existing_profiles = sorted([p.stem for p in PROFILES_DIR.glob("*.json")]) or ["default"]
-    profile_name = st.selectbox("Seleziona profilo", options=existing_profiles, index=0)
-    profile = load_profile(profile_name) or load_profile("default")
+    st.header("1) Template")
+    up = st.file_uploader("Carica template DOCX (opzionale)", type=["docx"])
+    if up:
+        st.session_state.template_bytes = up.getvalue()
+        st.success("Template caricato.")
+    colA, colB = st.columns(2)
+    with colA:
+        if st.button("Prepara template (agganci)", use_container_width=True):
+            st.session_state.template_bytes = prepare_template(st.session_state.template_bytes)
+            st.success("Template preparato: punti di aggancio inseriti nel corpo testo.")
+    with colB:
+        st.download_button(
+            "Scarica template preparato",
+            data=st.session_state.template_bytes,
+            file_name="template_preparato.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+        )
 
     st.divider()
-    st.header("Progettista")
-    progettista_nome = st.text_input("Nome", value=profile.get("progettista_nome", "Ing. Pasquale Senese"))
-    progettista_indirizzo = st.text_input("Indirizzo", value=profile.get("progettista_indirizzo", "Via Francesco Soave 30 - 20135 Milano (MI)"))
-    progettista_cell = st.text_input("Cell", value=profile.get("progettista_cell", "340 5731381"))
-    progettista_email = st.text_input("Email", value=profile.get("progettista_email", "pasquale.senese@ingpec.eu"))
-    progettista_piva = st.text_input("P.IVA", value=profile.get("progettista_piva", "14572980960"))
-
-    st.divider()
-    st.header("Ditta esecutrice")
-    esecutrice_nome = st.text_input("Nome / Ragione sociale", value=profile.get("esecutrice_nome", ""))
-    esecutrice_indirizzo = st.text_input("Indirizzo", value=profile.get("esecutrice_indirizzo", ""))
-    esecutrice_piva = st.text_input("P.IVA", value=profile.get("esecutrice_piva", ""))
-
-    st.divider()
-    st.header("Dati anagrafici")
-    luogo = st.text_input("Luogo (es. Busnago)", value=profile.get("luogo", "Busnago"))
-    data = st.date_input("Data", value=dt.date.today())
-    luogo_data = f"{luogo}, {data.strftime('%d/%m/%Y')}"
-
-    committente_nome = st.text_input("Committente (Nome / Condomìnio)", value=profile.get("committente_nome", "Nome"))
-    sito_indirizzo = st.text_input("Indirizzo sito", value=profile.get("sito_indirizzo", "via della SS. Annunziata 32/A"))
-    sito_cap_citta = st.text_input("CAP e Città (sito)", value=profile.get("sito_cap_citta", "55100 Lucca"))
-
-    st.header("Oggetto")
-    oggetto = st.text_input("Oggetto intervento", value=profile.get("oggetto", "nuovo impianto di ricarica per veicolo elettrico"))
-
-    st.header("Dati tecnici principali")
-    distanza_m = st.number_input("Distanza punto origine (m)", min_value=1, value=int(profile.get("distanza_m", 60)), step=1)
-    potenza_impegnata_kw = st.number_input("Potenza impegnata (kW)", min_value=0.5, value=float(profile.get("potenza_impegnata_kw", 4.0)), step=0.5)
-
-    cavo_lunghezza_m = st.number_input("Lunghezza cavo (m)", min_value=1, value=int(profile.get("cavo_lunghezza_m", 60)), step=1)
-    cavo_tipo = st.text_input("Tipo cavo", value=profile.get("cavo_tipo", "FG16OM16 3G6 0.6/1kV"))
-
-    st.header("Corto circuito (punto fornitura)")
-    ik_trifase_ka = st.number_input("Ik trifase presunta (kA)", min_value=0.1, value=float(profile.get("ik_trifase_ka", 10.0)), step=0.1)
-    ik_monofase_ka = st.number_input("Ik monofase presunta (kA)", min_value=0.1, value=float(profile.get("ik_monofase_ka", 6.0)), step=0.1)
-
-    st.divider()
-    st.header("LAYOUT D'IMPIANTO (descrittivo)")
-    layout_incluso = st.text_area("Cosa è incluso (una riga = un bullet)", value=profile.get("layout_incluso",""), height=120)
-    layout_escluso = st.text_area("Cosa è escluso (una riga = un bullet)", value=profile.get("layout_escluso",""), height=120)
-
-    st.divider()
-    st.subheader("Salva profilo")
-    new_profile_name = st.text_input("Nome profilo (per salvare)", value=profile_name)
-    if st.button("Salva / aggiorna profilo", use_container_width=True):
-        try:
-            save_profile(new_profile_name, {
-                **profile,
-                "progettista_nome": progettista_nome,
-                "progettista_indirizzo": progettista_indirizzo,
-                "progettista_cell": progettista_cell,
-                "progettista_email": progettista_email,
-                "progettista_piva": progettista_piva,
-                "esecutrice_nome": esecutrice_nome,
-                "esecutrice_indirizzo": esecutrice_indirizzo,
-                "esecutrice_piva": esecutrice_piva,
-                "luogo": luogo,
-                "committente_nome": committente_nome,
-                "sito_indirizzo": sito_indirizzo,
-                "sito_cap_citta": sito_cap_citta,
-                "oggetto": oggetto,
-                "distanza_m": distanza_m,
-                "potenza_impegnata_kw": potenza_impegnata_kw,
-                "cavo_lunghezza_m": cavo_lunghezza_m,
-                "cavo_tipo": cavo_tipo,
-                "ik_trifase_ka": ik_trifase_ka,
-                "ik_monofase_ka": ik_monofase_ka,
-                "layout_incluso": layout_incluso,
-                "layout_escluso": layout_escluso,
-            })
-            st.success("Profilo salvato.")
-        except Exception as e:
-            st.warning("Non riesco a scrivere su disco (tipico su Streamlit Cloud). Profilo non salvato.")
-            st.caption(str(e))
-
-    st.divider()
-    st.subheader("Template (senza logo Telebit)")
-    uploaded_template = st.file_uploader("Sostituisci template (.docx)", type=["docx"])
-    if uploaded_template:
-        st.session_state.template_bytes = uploaded_template.getvalue()
-        st.success("Template caricato (in memoria).")
-
-    st.download_button("Scarica template con placeholder", data=DEFAULT_TEMPLATE_PATH.read_bytes(), file_name="relazione_template_placeholders.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
-
-    st.caption(
-        "Placeholder nel template:\n"
-        "- {{DITTA_ESECUTRICE}} (opzionale)\n"
-        "- {{LAYOUT_DESCRITTIVO}}\n"
-        "- {{COLONNINE}}\n"
-        "- {{FOTO_GALLERY}}\n"
-        "- {{DIAGRAMMA_IMPIANTO}}\n"
-        "- {{ALLEGATI_SCHEDA_TECNICA}}"
+    st.header("2) Progettista (fisso)")
+    progettista = ProgettistaData(
+        nome=st.text_input("Nome", "Ing. Pasquale Senese"),
+        indirizzo=st.text_input("Indirizzo", "Via Francesco Soave 30 - 20135 Milano (MI)"),
+        cell=st.text_input("Cell", "340 5731381"),
+        email=st.text_input("Email", "pasquale.senese@ingpec.eu"),
+        piva=st.text_input("P.IVA", "14572980960"),
     )
 
+    st.divider()
+    st.header("3) Ditta esecutrice (opzionale)")
+    esec_nome = st.text_input("Nome/Ragione sociale", "")
+    esec_ind = st.text_input("Indirizzo", "")
+    esec_piva = st.text_input("P.IVA", "")
+    esecutrice = EsecutriceData(esec_nome, esec_ind, esec_piva) if (esec_nome or esec_ind or esec_piva) else None
 
-# ---------- Tabs ----------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["Generazione & Download", "Colonnine (multiplo)", "Foto", "Diagramma", "Schede tecniche (upload)"]
-)
+tab1, tab2, tab3, tab4 = st.tabs(["Dati progetto", "Colonnine", "Foto & Diagramma", "Schede tecniche"])
+
+with tab1:
+    st.subheader("Dati progetto")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        luogo = st.text_input("Luogo", "Busnago")
+        data = st.date_input("Data", dt.date.today())
+        luogo_data = f"{luogo}, {data.strftime('%d/%m/%Y')}"
+        committente = st.text_input("Committente", "Nome")
+    with c2:
+        sito_ind = st.text_input("Indirizzo sito", "via della SS. Annunziata 32/A")
+        sito_cc = st.text_input("CAP e Città", "55100 Lucca")
+        oggetto = st.text_input("Oggetto", "nuovo impianto di ricarica per veicolo elettrico")
+    with c3:
+        distanza = st.number_input("Distanza (m)", min_value=0, value=60, step=1)
+        potenza = st.number_input("Potenza impegnata (kW)", min_value=0.0, value=4.0, step=0.5)
+
+    st.subheader("Layout d'impianto (testo nel corpo)")
+    layout_incluso = st.text_area("Incluso (1 riga = 1 bullet)", height=120)
+    layout_escluso = st.text_area("Escluso (1 riga = 1 bullet)", height=120)
+
+    st.subheader("Dati elettrici")
+    c4, c5, c6 = st.columns(3)
+    with c4:
+        ik_t = st.number_input("Ik trifase (kA)", min_value=0.0, value=10.0, step=0.5)
+    with c5:
+        ik_m = st.number_input("Ik monofase (kA)", min_value=0.0, value=6.0, step=0.5)
+    with c6:
+        cavo_len = st.number_input("Lunghezza cavo (m)", min_value=0, value=60, step=1)
+        cavo_tipo = st.text_input("Tipo cavo", "FG16OM16 3G6 0.6/1kV")
+
+    data_obj = RelazioneData(
+        luogo_data=luogo_data,
+        committente=committente,
+        sito_indirizzo=sito_ind,
+        sito_cap_citta=sito_cc,
+        oggetto=oggetto,
+        distanza_m=int(distanza),
+        potenza_impegnata_kw=float(potenza),
+        ik_trifase_ka=float(ik_t),
+        ik_monofase_ka=float(ik_m),
+        cavo_lunghezza_m=int(cavo_len),
+        cavo_tipo=cavo_tipo,
+        layout_incluso=layout_incluso,
+        layout_escluso=layout_escluso,
+    )
 
 with tab2:
-    st.subheader("Colonnine (multiplo)")
-    c1, c2 = st.columns([3, 1])
-    with c1:
-        descr = st.text_input("Descrizione colonnina (modello, potenza, connettori, note)", value="")
-    with c2:
+    st.subheader("Colonnine")
+    cc1, cc2 = st.columns([3,1])
+    with cc1:
+        descr = st.text_input("Descrizione (modello/potenza/connettori/note)", "")
+    with cc2:
         qty = st.number_input("Qtà", min_value=1, value=1, step=1)
+
     if st.button("Aggiungi colonnina", use_container_width=True):
         if descr.strip():
             st.session_state.colonnine.append(ColonninaItem(descrizione=descr.strip(), quantita=int(qty)))
-            st.success("Colonnina aggiunta.")
+            st.success("Aggiunta.")
         else:
             st.warning("Inserisci una descrizione.")
 
     if st.session_state.colonnine:
-        st.divider()
+        st.write("Elenco colonnine:")
         for i, item in enumerate(list(st.session_state.colonnine)):
-            cc1, cc2, cc3 = st.columns([0.7, 3, 0.8])
-            with cc1:
+            r1, r2, r3 = st.columns([0.8, 3, 0.8])
+            with r1:
                 st.write(f"n. {item.quantita}")
-            with cc2:
-                newd = st.text_input("Descrizione", value=item.descrizione, key=f"col_desc_{i}")
-                st.session_state.colonnine[i].descrizione = newd
-            with cc3:
+            with r2:
+                st.session_state.colonnine[i].descrizione = st.text_input("Descrizione", item.descrizione, key=f"col_{i}")
+            with r3:
                 if st.button("Rimuovi", key=f"col_rm_{i}"):
                     st.session_state.colonnine.pop(i)
                     st.rerun()
-    else:
-        st.info("Nessuna colonnina inserita (opzionale).")
-
-with tab5:
-    st.subheader("Schede tecniche (upload)")
-    ups = st.file_uploader("Carica schede tecniche (DOCX/PDF)", type=["pdf", "docx"], accept_multiple_files=True)
-    if ups:
-        existing = {a.filename for a in st.session_state.allegati}
-        added = 0
-        for u in ups:
-            if u.name in existing:
-                continue
-            kind = "pdf" if u.name.lower().endswith(".pdf") else "docx"
-            st.session_state.allegati.append(AllegatoItem(filename=u.name, content=u.getvalue(), kind=kind))
-            added += 1
-        if added:
-            st.success(f"Aggiunti {added} allegati.")
-    if st.session_state.allegati:
-        for i, a in enumerate(list(st.session_state.allegati)):
-            c1, c2 = st.columns([4, 1])
-            with c1:
-                st.write(f"📎 {a.filename} ({a.kind})")
-            with c2:
-                if st.button("Rimuovi", key=f"all_rm_{i}"):
-                    st.session_state.allegati.pop(i)
-                    st.rerun()
-        st.caption("Nel template: {{ALLEGATI_SCHEDA_TECNICA}}")
-    else:
-        st.info("Nessun allegato caricato (opzionale).")
 
 with tab3:
     st.subheader("Foto")
-    uploads = st.file_uploader("Carica foto (JPG/PNG)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-    if uploads:
+    ups = st.file_uploader("Carica foto (JPG/PNG)", type=["jpg","jpeg","png"], accept_multiple_files=True)
+    if ups:
         existing = {p.filename for p in st.session_state.photos}
-        for u in uploads:
+        for u in ups:
             if u.name not in existing:
                 st.session_state.photos.append(PhotoItem(filename=u.name, content=u.getvalue(), caption=""))
         st.success("Foto aggiunte.")
 
     if st.session_state.photos:
-        for i, item in enumerate(list(st.session_state.photos)):
-            c1, c2, c3 = st.columns([1, 2, 0.6])
-            with c1:
-                st.image(item.content, use_container_width=True)
-            with c2:
-                cap = st.text_input(f"Didascalia — {item.filename}", value=item.caption, key=f"cap_{i}")
-                st.session_state.photos[i].caption = cap
-            with c3:
-                if st.button("Rimuovi", key=f"rm_{i}"):
-                    st.session_state.photos.pop(i)
-                    st.rerun()
-        st.caption("Nel template: {{FOTO_GALLERY}}")
-    else:
-        st.info("Nessuna foto caricata (opzionale).")
+        for i, ph in enumerate(list(st.session_state.photos)):
+            a, b, c = st.columns([1,2,0.6])
+            with a:
+                st.image(ph.content, use_container_width=True)
+            with b:
+                st.session_state.photos[i].caption = st.text_input("Didascalia", ph.caption, key=f"cap_{i}")
+            with c:
+                if st.button("Rimuovi", key=f"ph_rm_{i}"):
+                    st.session_state.photos.pop(i); st.rerun()
 
-with tab4:
+    st.divider()
     st.subheader("Diagramma impianto")
     mode = st.radio("Metodo", ["Carica immagine", "Disegna"], horizontal=True)
-
     if mode == "Carica immagine":
-        diag_up = st.file_uploader("Carica diagramma (JPG/PNG)", type=["jpg", "jpeg", "png"], accept_multiple_files=False)
-        if diag_up:
-            st.session_state.diagram_bytes = diag_up.getvalue()
-            st.image(st.session_state.diagram_bytes, caption="Diagramma selezionato", use_container_width=True)
+        d = st.file_uploader("Carica diagramma (JPG/PNG)", type=["jpg","jpeg","png"])
+        if d:
+            st.session_state.diagram = d.getvalue()
+            st.image(st.session_state.diagram, use_container_width=True)
     else:
-        st.caption("Disegno semplice: linee/annotazioni rapide. Poi salva il disegno come diagramma.")
         canvas = st_canvas(
-            fill_color="rgba(255, 255, 255, 0)",
+            fill_color="rgba(255,255,255,0)",
             stroke_width=3,
             stroke_color="#000000",
             background_color="#FFFFFF",
-            height=450,
+            height=420,
             drawing_mode="freedraw",
             key="canvas",
         )
-        if st.button("Usa disegno come diagramma", type="primary"):
+        if st.button("Salva disegno come diagramma", type="primary"):
             if canvas.image_data is not None:
                 import PIL.Image
-                import io
                 img = PIL.Image.fromarray(canvas.image_data.astype("uint8"), mode="RGBA").convert("RGB")
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
-                st.session_state.diagram_bytes = buf.getvalue()
+                st.session_state.diagram = buf.getvalue()
                 st.success("Diagramma salvato.")
-        if st.session_state.diagram_bytes:
-            st.image(st.session_state.diagram_bytes, caption="Diagramma pronto", use_container_width=True)
+        if st.session_state.diagram:
+            st.image(st.session_state.diagram, caption="Diagramma pronto", use_container_width=True)
 
-    st.caption("Nel template: {{DIAGRAMMA_IMPIANTO}}")
+with tab4:
+    st.subheader("Schede tecniche")
+    att = st.file_uploader("Carica schede tecniche (PDF/DOCX)", type=["pdf","docx"], accept_multiple_files=True)
+    if att:
+        existing = {a.filename for a in st.session_state.allegati}
+        for u in att:
+            if u.name in existing:
+                continue
+            kind = "pdf" if u.name.lower().endswith(".pdf") else "docx"
+            st.session_state.allegati.append(AllegatoItem(filename=u.name, content=u.getvalue(), kind=kind))
+        st.success("Allegati aggiunti.")
+    if st.session_state.allegati:
+        for i, a in enumerate(list(st.session_state.allegati)):
+            x, y = st.columns([4,1])
+            with x:
+                st.write(f"📎 {a.filename} ({a.kind})")
+            with y:
+                if st.button("Rimuovi", key=f"att_rm_{i}"):
+                    st.session_state.allegati.pop(i); st.rerun()
 
-
-with tab1:
-    st.subheader("Generazione & Download")
-    st.info("La cover include Progettista e (se compilata) la Ditta esecutrice.")
-
-    # --- Sezioni del template (placeholder -> stato) ---
-    sec = [
-        ("Ditta esecutrice", "{{DITTA_ESECUTRICE}}", "Opzionale"),
-        ("Layout d'impianto", "{{LAYOUT_DESCRITTIVO}}", "Richiesto se presente nel template"),
-        ("Colonnine", "{{COLONNINE}}", "Richiesto se presente nel template"),
-        ("Foto gallery", "{{FOTO_GALLERY}}", "Richiesto se presente nel template"),
-        ("Diagramma impianto", "{{DIAGRAMMA_IMPIANTO}}", "Richiesto se presente nel template"),
-        ("Allegati scheda tecnica", "{{ALLEGATI_SCHEDA_TECNICA}}", "Richiesto se presente nel template"),
-    ]
-    st.markdown("### Sezioni rilevate nel template")
-    for label, marker, note in sec:
-        present = template_has_marker(st.session_state.template_bytes, marker)
-        st.write(("✅" if present else "➖") + f" **{label}** — {note}")
-
-
-    
-    missing = []
-    for m in ["{{LAYOUT_DESCRITTIVO}}","{{COLONNINE}}","{{FOTO_GALLERY}}","{{DIAGRAMMA_IMPIANTO}}","{{ALLEGATI_SCHEDA_TECNICA}}","{{DITTA_ESECUTRICE}}"]:
-        if not template_has_marker(st.session_state.template_bytes, m):
-            missing.append(m)
-    if missing:
-        st.caption("Nel template mancano questi placeholder (alcune sezioni useranno fallback o non verranno inserite): " + ", ".join(missing))
-
-
-    st.warning(
-        "Placeholder nel template:\n"
-        "- {{DITTA_ESECUTRICE}} (opzionale)\n"
-        "- {{LAYOUT_DESCRITTIVO}}\n"
-        "- {{COLONNINE}}\n"
-        "- {{FOTO_GALLERY}}\n"
-        "- {{DIAGRAMMA_IMPIANTO}}\n"
-        "- {{ALLEGATI_SCHEDA_TECNICA}}"
-    )
-
-    filename_base = st.text_input("Nome file", value="relazione_progetto_elettrico")
-
-    if st.button("Genera e prepara download", type="primary", use_container_width=True):
-        # --- Requisiti sezioni (in base ai placeholder presenti nel template) ---
-        present = {
-            "{{DITTA_ESECUTRICE}}": template_has_marker(st.session_state.template_bytes, "{{DITTA_ESECUTRICE}}"),
-            "{{LAYOUT_DESCRITTIVO}}": template_has_marker(st.session_state.template_bytes, "{{LAYOUT_DESCRITTIVO}}"),
-            "{{COLONNINE}}": template_has_marker(st.session_state.template_bytes, "{{COLONNINE}}"),
-            "{{FOTO_GALLERY}}": template_has_marker(st.session_state.template_bytes, "{{FOTO_GALLERY}}"),
-            "{{DIAGRAMMA_IMPIANTO}}": template_has_marker(st.session_state.template_bytes, "{{DIAGRAMMA_IMPIANTO}}"),
-            "{{ALLEGATI_SCHEDA_TECNICA}}": template_has_marker(st.session_state.template_bytes, "{{ALLEGATI_SCHEDA_TECNICA}}"),
-        }
-
-        missing_required = []
-
-        # Layout: richiedi almeno una riga in incluso o escluso se la sezione è presente
-        if present["{{LAYOUT_DESCRITTIVO}}"]:
-            if not (layout_incluso.strip() or layout_escluso.strip()):
-                missing_required.append("LAYOUT D'IMPIANTO (compila almeno Incluso o Escluso)")
-
-        # Colonnine: richiedi almeno una colonnina se la sezione è presente
-        if present["{{COLONNINE}}"]:
-            if len(st.session_state.colonnine) == 0:
-                missing_required.append("COLONNINE (aggiungi almeno una colonnina)")
-
-        # Foto: richiedi almeno una foto se la sezione è presente
-        if present["{{FOTO_GALLERY}}"]:
-            if len(st.session_state.photos) == 0:
-                missing_required.append("FOTO (carica almeno una foto)")
-
-        # Diagramma: richiedi un diagramma se la sezione è presente
-        if present["{{DIAGRAMMA_IMPIANTO}}"]:
-            if not st.session_state.diagram_bytes:
-                missing_required.append("DIAGRAMMA IMPIANTO (carica o disegna un diagramma)")
-
-        # Allegati: richiedi almeno un allegato se la sezione è presente
-        if present["{{ALLEGATI_SCHEDA_TECNICA}}"]:
-            if len(st.session_state.allegati) == 0:
-                missing_required.append("ALLEGATI SCHEDA TECNICA (carica almeno un PDF/DOCX)")
-
-        # Ditta esecutrice: opzionale anche se il placeholder è presente
-        # (se compili qualcosa, verrà inserita; altrimenti resterà vuota)
-
-        if missing_required:
-            st.error("Mancano dati obbligatori per queste sezioni del template:\n- " + "\n- ".join(missing_required))
-            st.stop()
-        progettista = ProgettistaData(
-            nome=progettista_nome,
-            indirizzo=progettista_indirizzo,
-            cell=progettista_cell,
-            email=progettista_email,
-            piva=progettista_piva,
-        )
-        esecutrice = EsecutriceData(
-            nome=esecutrice_nome,
-            indirizzo=esecutrice_indirizzo,
-            piva=esecutrice_piva,
-        )
-
-        data_obj = RelazioneData(
-            luogo_data=luogo_data,
-            committente_nome=committente_nome,
-            sito_indirizzo=sito_indirizzo,
-            sito_cap_citta=sito_cap_citta,
-            oggetto=oggetto,
-            distanza_m=int(distanza_m),
-            potenza_impegnata_kw=float(potenza_impegnata_kw),
-            cavo_tipo=cavo_tipo,
-            cavo_lunghezza_m=int(cavo_lunghezza_m),
-            ik_trifase_ka=float(ik_trifase_ka),
-            ik_monofase_ka=float(ik_monofase_ka),
-            layout_incluso=layout_incluso,
-            layout_escluso=layout_escluso,
-        )
-
-        docx_bytes = generate_docx_bytes(
+st.divider()
+st.subheader("Generazione")
+fname = st.text_input("Nome file", "relazione_tecnica")
+colG1, colG2 = st.columns([1,1])
+with colG1:
+    if st.button("Genera DOCX", type="primary", use_container_width=True):
+        docx = generate_document(
             template=st.session_state.template_bytes,
             data=data_obj,
             progettista=progettista,
             esecutrice=esecutrice,
             colonnine=st.session_state.colonnine,
             photos=st.session_state.photos,
-            diagram_bytes=st.session_state.diagram_bytes,
+            diagram_bytes=st.session_state.diagram,
             allegati=st.session_state.allegati,
         )
-        st.session_state["last_docx_bytes"] = docx_bytes
-        st.success("Documento generato. Ora puoi scaricarlo qui sotto.")
+        st.session_state["last_docx"] = docx
+        st.success("Documento generato.")
 
-    if st.session_state.get("last_docx_bytes"):
+with colG2:
+    if st.session_state.get("last_docx"):
         st.download_button(
             "Scarica DOCX",
-            data=st.session_state["last_docx_bytes"],
-            file_name=f"{filename_base}.docx",
+            data=st.session_state["last_docx"],
+            file_name=f"{fname}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             use_container_width=True,
         )
