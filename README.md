@@ -1,39 +1,21 @@
-# Relazione tecnica EV — Streamlit (v11)
+# Relazione Tecnica DiCo – Streamlit App
 
-Questa versione fa due cose in modo robusto:
+App Streamlit per compilare una **Relazione Tecnica** (allegato alla DiCo) per impianti elettrici
+con campi guidati + verifiche/collaudi essenziali e generazione **PDF**.
 
-1) **Crea punti di aggancio nel corpo del testo** (se mancanti) inserendo automaticamente i marker:
-- {{DITTA_ESECUTRICE}}
-- {{LAYOUT_DESCRITTIVO}}
-- {{COLONNINE}}
-- {{FOTO_GALLERY}}
-- {{DIAGRAMMA_IMPIANTO}}
-- {{ALLEGATI_SCHEDA_TECNICA}}
-
-2) Genera il DOCX popolando **il corpo**:
-- sostituisce placeholder base (es. {{OGGETTO}}, {{COMMITTENTE}}, …) se presenti
-- scrive le sezioni (layout/colonnine/foto/diagramma/allegati) nei punti di aggancio
-- pulisce la sezione Layout (cancella il testo “non pertinente” sotto il titolo e reinserisce Inclusi/Esclusi)
-
-## Uso rapido
+## Avvio locale
 ```bash
+python -m venv .venv
+source .venv/bin/activate  # (Windows: .venv\Scripts\activate)
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-## Suggerimento operativo
-- Carica il tuo template DOCX.
-- Clicca **“Prepara template (agganci)”**.
-- Scarica e salva il “template_preparato.docx”: sarà quello che userai sempre.
+## Note
+- Il PDF è generato direttamente (ReportLab).
+- Le verifiche sono volutamente **sintetiche** (supporto alla DiCo) e non sostituiscono un progetto di calcolo completo.
 
-## Campi "aggiungere XXX" (template-driven)
 
-Nel template puoi scrivere nel **corpo del testo** frasi del tipo:
-
-- `aggiungere DESCRIZIONE INTERVENTO`
-- `aggiungere NOTE`
-
-L'app legge automaticamente tutte le occorrenze `aggiungere ...` (anche in tabelle/header/footer) e
-crea in interfaccia i campi corrispondenti. In generazione, sostituisce **quel testo** con il valore inserito.
-
-Suggerimento: usa etichette univoche (es. `aggiungere DESCR_INTERVENTO`, `aggiungere NOTE_IMPIANTO`).
+## Miglioramenti v3
+- Campi aggiuntivi per evitare placeholder nel PDF (fonte dati, prescrizioni enti, VV.F./CPI, firma).
+- Tabelle PDF con larghezze corrette e intestazioni su più righe (miglior UX).

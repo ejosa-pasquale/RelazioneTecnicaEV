@@ -14,7 +14,6 @@ Nota: la cover riprende l'impostazione a tre riquadri del PDF campione.
 
 from io import BytesIO
 from typing import Dict, List, Any, Optional
-import re
 
 from xml.sax.saxutils import escape
 
@@ -34,8 +33,6 @@ from reportlab.platypus import (
     Flowable,
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-
-from template_sections import TEMPLATE_SECTIONS
 
 
 def _p(text: str, style):
@@ -65,41 +62,6 @@ def _meaningful(value: Any) -> bool:
     if "xxxx" in low:
         return False
     return True
-def _split_paragraphs(text: str) -> List[str]:
-    """Split long template texts into readable paragraphs."""
-    if not text:
-        return []
-    t = str(text).replace("\r\n", "\n").replace("\r", "\n")
-    chunks = [c.strip() for c in t.split("\n\n")]
-    return [c for c in chunks if c]
-
-
-def _first_non_empty(values: List[Any], default: str = "") -> str:
-    for v in values:
-        if _meaningful(v):
-            return str(v).strip()
-    return default
-
-
-def _ensure_table_styles(styles):
-    if "TableHeader" not in styles:
-        styles.add(ParagraphStyle(name="TableHeader", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10))
-    if "TableCell" not in styles:
-        styles.add(ParagraphStyle(name="TableCell", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=10))
-    return styles
-
-
-def _table_style():
-    return TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 3),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-    ])
-
 
 
 def _kv_table(rows: List[list], col_widths):
@@ -543,152 +505,9 @@ def _revision_table(data: Dict[str, Any], styles) -> Optional[Table]:
     return tbl
 
 
-
-def _apply_dynamics_to_template(num: int, text: str, data: Dict[str, Any]) -> str:
-    """Optionally replace default numeric values with user-provided ones, keeping wording."""
-    if not text:
-        return ""
-    out = text
-    if num == 11:
-        dist = _first_non_empty([data.get("distanza_pod_m"), data.get("distanza_m")], "")
-        if _meaningful(dist):
-            out = re.sub(r"circa\s+\d+\s+metri", f"circa {dist} metri", out)
-            out = re.sub(r"dista\s+\d+\s+metri", f"dista {dist} metri", out)
-    if num == 15:
-        icc3 = _first_non_empty([data.get("icc_trifase_ka")], "")
-        icc1 = _first_non_empty([data.get("icc_mono_ka"), data.get("icc_monofase_ka")], "")
-        if _meaningful(icc3):
-            out = re.sub(r"pari\s+a\s+\d+\s*kA", f"pari a {icc3} kA", out, count=1)
-        if _meaningful(icc1):
-            # replace second occurrence
-            parts = out.split("kA")
-            if len(parts) > 2:
-                # crude but effective: replace last numeric before 'kA' in second statement
-                out = re.sub(r"pari\s+a\s+\d+\s*kA", f"pari a {icc1} kA", out, count=1, flags=re.I)
-    if num == 16:
-        pot = _first_non_empty([data.get("potenza_impegnata_kw"), data.get("potenza_kw"), data.get("potenza_disp"), data.get("potenza_disponibile")], "")
-        if _meaningful(pot):
-            out = re.sub(r"\b\d+(?:[\.,]\d+)?\s*kW\b", f"{pot} kW", out)
-    return out
-
-
-def _add_progetto_elettrico_relazione_tecnica(story, data, styles, h2, h3, body):
-    """Insert the full 9..58 technical template (from DOCX), integrated in the report."""
-    th = styles["TableHeader"]
-    tc = styles["TableCell"]
-
-    story.append(_p("PROGETTO ELETTRICO – RELAZIONE TECNICA", h2))
-    story.append(Spacer(1, 6))
-
-    def add_section(num: int, title: str, text: str):
-        story.append(_p(f"{num}  {title}".upper(), h3))
-        txt = _apply_dynamics_to_template(num, text, data)
-        for para in _split_paragraphs(txt):
-            if _meaningful(para):
-                story.append(_p(para, body))
-        story.append(Spacer(1, 8))
-
-        # Inline integrations with existing calculations/tables
-        if num == 18:
-            linee = data.get("linee", []) or []
-            if isinstance(linee, list) and linee:
-                tdata = [[_p("Circuito/Linea", th), _p("Destinazione/Utilizzo", th), _p("Posa / L (m)", th), _p("Cavo (tipo/sezione)", th),
-                          _p("Protezione (MT/MTD)", th), _p("Differenziale (tipo/Idn)", th), _p("ΔV %", th), _p("Esito", th)]]
-                for ln in linee:
-                    if not isinstance(ln, dict):
-                        continue
-                    posa = (ln.get("Posa", "") or "").strip()
-                    ll = ln.get("L_m", "") or ln.get("Lunghezza_m", "") or ""
-                    posa_len = f"{posa}\n{ll}" if _meaningful(posa) else f"{ll}"
-                    tdata.append([
-                        _p(str(ln.get("Linea", "") or ln.get("Circuito/Linea", "")), tc),
-                        _p(str(ln.get("Uso", "") or ln.get("Destinazione/Utilizzo", "")), tc),
-                        _p(str(posa_len), tc),
-                        _p(str(ln.get("Cavo", "") or ln.get("Cavo (tipo/sezione)", "")), tc),
-                        _p(str(ln.get("Protezione", "") or ln.get("Protezione (MT/MTD)", "")), tc),
-                        _p(str(ln.get("Diff", "") or ln.get("Differenziale (tipo/Idn)", "")), tc),
-                        _p(str(ln.get("DV_perc", "") or ln.get("ΔV %", "")), tc),
-                        _p(str(ln.get("Esito", "") or ln.get("Esito ΔV", "")), tc),
-                    ])
-                if len(tdata) > 1:
-                    colw = [16*mm, 30*mm, 24*mm, 32*mm, 26*mm, 26*mm, 10*mm, 10*mm]
-                    tbl = Table(tdata, colWidths=colw, repeatRows=1, hAlign="LEFT")
-                    tbl.setStyle(_table_style())
-                    story.append(tbl)
-                    story.append(Spacer(1, 8))
-
-        if num == 38:
-            # integrate quadri table
-            quadri = data.get("quadri", []) or []
-            if isinstance(quadri, list) and quadri:
-                tdata = [[_p("Quadro", th), _p("Ubicazione", th), _p("IP", th),
-                          _p("Interruttore generale (tipo/In)", th), _p("Differenziale generale (tipo/Idn)", th)]]
-                for q in quadri:
-                    if not isinstance(q, dict):
-                        continue
-                    generale = q.get("Generale") or q.get("Interruttore generale (tipo/In)") or q.get("Interruttore generale") or ""
-                    diff = q.get("Diff") or q.get("Differenziale generale (tipo/Idn)") or q.get("Differenziale generale") or ""
-                    if not _meaningful(str(q.get("Quadro","")) + str(generale) + str(diff)):
-                        continue
-                    tdata.append([
-                        _p(str(q.get("Quadro", "")), tc),
-                        _p(str(q.get("Ubicazione", "")), tc),
-                        _p(str(q.get("IP", "")), tc),
-                        _p(str(generale), tc),
-                        _p(str(diff), tc),
-                    ])
-                if len(tdata) > 1:
-                    tbl = Table(tdata, colWidths=[16*mm, 40*mm, 12*mm, 52*mm, 54*mm], repeatRows=1, hAlign="LEFT")
-                    tbl.setStyle(_table_style())
-                    story.append(tbl)
-                    story.append(Spacer(1, 8))
-
-        if num == 40:
-            evse = data.get("evse", []) or data.get("evse_tabella", []) or data.get("evse_list", [])
-            if isinstance(evse, list) and evse:
-                tdata = [[_p("Marca/Modello", th), _p("Potenza", th), _p("Connettore", th),
-                          _p("Modo", th), _p("IP/IK", th), _p("RCD/RDC", th), _p("Note", th)]]
-                for r in evse:
-                    if not isinstance(r, dict):
-                        continue
-                    marca = r.get("Marca/Modello") or r.get("MarcaModello") or r.get("Marca") or ""
-                    pot = r.get("P (kW)") or r.get("Potenza") or r.get("Potenza_kW") or ""
-                    if not _meaningful(str(marca) + str(pot)):
-                        continue
-                    tdata.append([
-                        _p(str(marca), tc),
-                        _p(str(pot), tc),
-                        _p(str(r.get("Connettore", "")), tc),
-                        _p(str(r.get("Modo", "")), tc),
-                        _p(str(r.get("IP/IK", "") or r.get("IPIK", "")), tc),
-                        _p(str(r.get("RCD/RDC", "") or r.get("RCD", "")), tc),
-                        _p(str(r.get("Note", "")), tc),
-                    ])
-                if len(tdata) > 1:
-                    tbl = Table(tdata, colWidths=[48*mm, 16*mm, 18*mm, 10*mm, 14*mm, 18*mm, 56*mm], repeatRows=1, hAlign="LEFT")
-                    tbl.setStyle(_table_style())
-                    story.append(tbl)
-                    story.append(Spacer(1, 8))
-
-    # Loop sections
-    for num in range(9, 59):
-        sec = TEMPLATE_SECTIONS.get(num)
-        if not sec:
-            continue
-        title = (sec.get("title") or "").strip()
-        text = (sec.get("text") or "").strip()
-        add_section(num, title, text)
-
-
 def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     buf = BytesIO()
     styles = getSampleStyleSheet()
-    styles = _ensure_table_styles(styles)
-
-    # In questa versione il report include sempre la sezione "PROGETTO ELETTRICO – RELAZIONE TECNICA" (par. 9…58)
-    # e le tabelle (quadri/linee/EVSE) vengono innestate nei paragrafi dedicati.
-    # La variabile serve solo per evitare doppie stampe nelle sezioni di sintesi.
-    use_template_sections = True
 
     th = ParagraphStyle("th", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
     tc = ParagraphStyle("tc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
@@ -786,14 +605,15 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(_p("4.2 Descrizione impianto e opere", h3))
         story.append(_p(descr, styles["BodyText"]))
         story.append(Spacer(1, 8))
-    # Robust: avoid NameError if variable scoping changes
+
     conf = data.get("confini", "")
     if _meaningful(conf):
         story.append(_p("4.3 Confini dell’intervento e interfacce", h3))
         story.append(_p(conf, styles["BodyText"]))
         story.append(Spacer(1, 10))
+
     quadri = data.get("quadri", [])
-    if quadri and not use_template_sections:
+    if quadri:
         story.append(_p("4.4 Quadri elettrici e distribuzione (sintesi)", h3))
         tdata = [[
             _p("Quadro", th),
@@ -822,8 +642,9 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         ]))
         story.append(tbl)
         story.append(Spacer(1, 10))
+
     linee = data.get("linee", [])
-    if linee and not use_template_sections:
+    if linee:
         story.append(_p("4.5 Elenco circuiti, cavi e protezioni (sintesi)", h3))
         tdata = [[
             _p("Circuito<br/>/Linea", th),

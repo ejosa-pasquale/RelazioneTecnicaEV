@@ -1,330 +1,613 @@
-\
-import datetime as dt
-import io
-import re
-from pathlib import Path
-
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
+import pandas as pd
+from datetime import date
 
-from docx import Document
+from calcoli import corrente_da_potenza, caduta_tensione, verifica_tt_ra_idn, zs_massima_tn
+from pdf_generator import genera_pdf_relazione_bytes
 
-def iter_all_paragraphs_doc(doc: Document):
-    for p in doc.paragraphs:
-        yield p
-    for t in doc.tables:
-        for row in t.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    yield p
-                for nt in cell.tables:
-                    for nrow in nt.rows:
-                        for ncell in nrow.cells:
-                            for np in ncell.paragraphs:
-                                yield np
-    for section in doc.sections:
-        for hf in [section.header, section.footer]:
-            for p in hf.paragraphs:
-                yield p
-            for t in hf.tables:
-                for row in t.rows:
-                    for cell in row.cells:
-                        for p in cell.paragraphs:
-                            yield p
+st.set_page_config(page_title="Relazione Tecnica DiCo – Impianti Elettrici", layout="wide")
 
-_AGG_RE = re.compile(r"\baggiungere\s+([^\n\r]+)", re.IGNORECASE)
+st.title("Relazione Tecnica - Impianto Elettrico (Allegato alla DiCo)")
+st.caption("Compilazione guidata (stile v7) + calcoli essenziali + generazione PDF.")
 
-def extract_aggiungere_fields(template_bytes: bytes):
-    """
-    Trova occorrenze del tipo 'aggiungere XXX' nel template (anche in tabelle/header/footer).
-    Ritorna una lista di dict: {key,label,token}.
-    - token: stringa completa da sostituire (es. 'aggiungere DESCRIZIONE INTERVENTO')
-    - key: chiave normalizzata per Streamlit
-    """
-    d = Document(io.BytesIO(template_bytes))
-    found = {}
-    for p in iter_all_paragraphs_doc(d):
-        txt = p.text or ""
-        for m in _AGG_RE.finditer(txt):
-            label = m.group(1).strip()
-            token = txt[m.start():m.end()]  # substring matched
-            # Normalizza key
-            key = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
-            if not key:
-                key = f"campo_{len(found)+1}"
-            # se lo stesso label appare più volte, unifica
-            found.setdefault(key, {"key": key, "label": label, "token": f"aggiungere {label}"})
-    return list(found.values())
+PROGETTISTA_BLOCCO = """Ing. Pasquale Senese
+Via Francesco Soave 30 - 20135 Milano
+Cell: 340 5731381
+Email: pasquale.senese@ingpec.eu
+P.IVA: 14572980960
+"""
 
-
-from generator import (
-    AllegatoItem,
-    ColonninaItem,
-    EsecutriceData,
-    PhotoItem,
-    ProgettistaData,
-    RelazioneData,
-    generate_document,
-    prepare_template,
-)
-
-APP_DIR = Path(__file__).parent
-DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "template_aggiungere.dotx"
-
-st.set_page_config(page_title="Relazione tecnica EV", layout="wide")
-st.title("Relazione tecnica — Generatore veloce")
-st.caption("Flusso consigliato: 1) carica template 2) **Prepara template (agganci nel corpo)** 3) usa sempre quel template preparato 4) genera DOCX.")
-
-if "template_bytes" not in st.session_state:
-    st.session_state.template_bytes = DEFAULT_TEMPLATE_PATH.read_bytes()
-    st.session_state.aggiungere_fields = extract_aggiungere_fields(st.session_state.template_bytes)
-if "photos" not in st.session_state:
-    st.session_state.photos = []
-if "diagram" not in st.session_state:
-    st.session_state.diagram = None
-if "colonnine" not in st.session_state:
-    st.session_state.colonnine = []
-if "allegati" not in st.session_state:
-    st.session_state.allegati = []
-if "aggiungere_fields" not in st.session_state:
-    st.session_state.aggiungere_fields = []
-if "aggiungere_values" not in st.session_state:
-    st.session_state.aggiungere_values = {}
+CAVI_TIPO = ["FS17", "FG17", "FG16OR16", "FG16OM16"]
 
 with st.sidebar:
-    st.header("1) Template")
-    up = st.file_uploader("Carica template DOCX (opzionale)", type=["docx"])
-    if up:
-        st.session_state.template_bytes = up.getvalue()
-        st.success("Template caricato.")
-        st.session_state.aggiungere_fields = extract_aggiungere_fields(st.session_state.template_bytes)
-
-    colA, colB = st.columns(2)
-    with colA:
-        if st.button("Prepara template (agganci)", use_container_width=True):
-            st.session_state.template_bytes = prepare_template(st.session_state.template_bytes)
-            st.success("Template preparato: punti di aggancio inseriti nel corpo testo.")
-    with colB:
-        st.download_button(
-            "Scarica template preparato",
-            data=st.session_state.template_bytes,
-            file_name="template_preparato.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
-        )
-
+    st.header("Parametri calcoli (sintesi)")
+    dv_lim = st.number_input("Caduta di tensione max (%)", min_value=1.0, max_value=10.0, value=4.0, step=0.5)
+    ul_tt = st.number_input("UL sistema TT (V) – criterio Ra·Idn ≤ UL", min_value=25.0, max_value=100.0, value=50.0, step=5.0)
     st.divider()
-    st.header("2) Progettista (fisso)")
-    progettista = ProgettistaData(
-        nome=st.text_input("Nome", "Ing. Pasquale Senese"),
-        indirizzo=st.text_input("Indirizzo", "Via Francesco Soave 30 - 20135 Milano (MI)"),
-        cell=st.text_input("Cell", "340 5731381"),
-        email=st.text_input("Email", "pasquale.senese@ingpec.eu"),
-        piva=st.text_input("P.IVA", "14572980960"),
-    )
+    st.markdown("**Nota**: - ")
 
-    st.divider()
-    st.header("3) Ditta esecutrice (opzionale)")
-    esec_nome = st.text_input("Nome/Ragione sociale", "")
-    esec_ind = st.text_input("Indirizzo", "")
-    esec_piva = st.text_input("P.IVA", "")
-    esecutrice = EsecutriceData(esec_nome, esec_ind, esec_piva) if (esec_nome or esec_ind or esec_piva) else None
+# =========================
+# DATI IDENTIFICATIVI
+# =========================
+st.subheader("Dati identificativi documento")
 
-tab1, tab2, tab3, tab4 = st.tabs(["Dati progetto", "Colonnine", "Foto & Diagramma", "Schede tecniche"])
+c1, c2, c3 = st.columns(3)
+with c1:
+    committente = st.text_input("Committente", "XXXX (Inserire)")
+    luogo = st.text_input("Luogo di installazione (indirizzo completo)", "XXXX (Inserire indirizzo completo)")
+    oggetto = st.text_input("Oggetto intervento (descrizione sintetica)", "XXXX (Inserire descrizione sintetica dell’intervento)")
+with c2:
+    tipologia = st.selectbox("Tipologia impianto", ["Nuova realizzazione", "Ampliamento", "Trasformazione", "Manutenzione straordinaria"], index=3)
+    sistema = st.selectbox("Sistema di distribuzione", ["TT", "TN-S", "TN-C-S", "IT"], index=0)
+    alimentazione = st.selectbox("Alimentazione", ["Monofase 230 V", "Trifase 400 V"], index=1)
+with c3:
+    tensione = st.text_input("Tensione/Frequenza", "230/400 V - 50 Hz")
+    potenza_disp_kw = st.text_input("Potenza impegnata / disponibile", "XXXX (Inserire)")
+    cod_progetto = st.text_input("Cod. progetto", "XXXX (Inserire)")
+    nome_progetto = st.text_input("Nome progetto", "XXXX (Inserire)")
+    cover_style = st.selectbox("Stile cover", ["Engineering (title-block)", "A riquadri (legacy)"], index=0)
 
-with tab1:
-    st.subheader("Dati progetto")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        luogo = st.text_input("Luogo", "Busnago")
-        data = st.date_input("Data", dt.date.today())
-        luogo_data = f"{luogo}, {data.strftime('%d/%m/%Y')}"
-        committente = st.text_input("Committente", "Nome")
-    with c2:
-        sito_ind = st.text_input("Indirizzo sito", "via della SS. Annunziata 32/A")
-        sito_cc = st.text_input("CAP e Città", "55100 Lucca")
-        oggetto = st.text_input("Oggetto", "nuovo impianto di ricarica per veicolo elettrico")
-    with c3:
-        distanza = st.number_input("Distanza (m)", min_value=0, value=60, step=1)
-        potenza = st.number_input("Potenza impegnata (kW)", min_value=0.0, value=4.0, step=0.5)
+    n_doc = st.text_input("N. documento", "XXXX (Inserire)")
+    revisione = st.text_input("Revisione", "00")
+    data_doc = st.date_input("Data", value=date.today())
 
-    
-    st.subheader("Campi del template (AGGIUNGERE …)")
-    st.caption("Nel template hai scritto 'aggiungere XXX': qui inserisci il valore che sostituirà quel testo nel corpo del documento.")
-    if not st.session_state.aggiungere_fields:
-        st.info("Nessun campo 'aggiungere …' trovato nel template.")
-    else:
-        for f in st.session_state.aggiungere_fields:
-            k = f"aggi_{f['key']}"
-            default = st.session_state.aggiungere_values.get(f['key'], "")
-            val = st.text_area(f['label'], value=default, height=80, key=k)
-            st.session_state.aggiungere_values[f['key']] = val
+st.subheader("Revisioni documento")
+rev_df = pd.DataFrame([
+    {"Rev": str(revisione), "Data": data_doc.strftime('%d/%m/%Y'), "Descrizione": "Emissione documento"},
+])
+rev_df = st.data_editor(rev_df, num_rows="dynamic", use_container_width=True, key="revisioni")
 
-    st.subheader("Layout d'impianto (testo nel corpo)")
-    layout_incluso = st.text_area("Incluso (1 riga = 1 bullet)", height=120)
-    layout_escluso = st.text_area("Escluso (1 riga = 1 bullet)", height=120)
-
-    st.subheader("Dati elettrici")
-    c4, c5, c6 = st.columns(3)
-    with c4:
-        ik_t = st.number_input("Ik trifase (kA)", min_value=0.0, value=10.0, step=0.5)
-    with c5:
-        ik_m = st.number_input("Ik monofase (kA)", min_value=0.0, value=6.0, step=0.5)
-    with c6:
-        cavo_len = st.number_input("Lunghezza cavo (m)", min_value=0, value=60, step=1)
-        cavo_tipo = st.text_input("Tipo cavo", "FG16OM16 3G6 0.6/1kV")
-
-    data_obj = RelazioneData(
-        luogo_data=luogo_data,
-        committente=committente,
-        sito_indirizzo=sito_ind,
-        sito_cap_citta=sito_cc,
-        oggetto=oggetto,
-        distanza_m=int(distanza),
-        potenza_impegnata_kw=float(potenza),
-        ik_trifase_ka=float(ik_t),
-        ik_monofase_ka=float(ik_m),
-        cavo_lunghezza_m=int(cavo_len),
-        cavo_tipo=cavo_tipo,
-        layout_incluso=layout_incluso,
-        layout_escluso=layout_escluso,
-    )
-
-with tab2:
-    st.subheader("Colonnine")
-    cc1, cc2 = st.columns([3,1])
-    with cc1:
-        descr = st.text_input("Descrizione (modello/potenza/connettori/note)", "")
-    with cc2:
-        qty = st.number_input("Qtà", min_value=1, value=1, step=1)
-
-    if st.button("Aggiungi colonnina", use_container_width=True):
-        if descr.strip():
-            st.session_state.colonnine.append(ColonninaItem(descrizione=descr.strip(), quantita=int(qty)))
-            st.success("Aggiunta.")
-        else:
-            st.warning("Inserisci una descrizione.")
-
-    if st.session_state.colonnine:
-        st.write("Elenco colonnine:")
-        for i, item in enumerate(list(st.session_state.colonnine)):
-            r1, r2, r3 = st.columns([0.8, 3, 0.8])
-            with r1:
-                st.write(f"n. {item.quantita}")
-            with r2:
-                st.session_state.colonnine[i].descrizione = st.text_input("Descrizione", item.descrizione, key=f"col_{i}")
-            with r3:
-                if st.button("Rimuovi", key=f"col_rm_{i}"):
-                    st.session_state.colonnine.pop(i)
-                    st.rerun()
-
-with tab3:
-    st.subheader("Foto")
-    ups = st.file_uploader("Carica foto (JPG/PNG)", type=["jpg","jpeg","png"], accept_multiple_files=True)
-    if ups:
-        existing = {p.filename for p in st.session_state.photos}
-        for u in ups:
-            if u.name not in existing:
-                st.session_state.photos.append(PhotoItem(filename=u.name, content=u.getvalue(), caption=""))
-        st.success("Foto aggiunte.")
-
-    if st.session_state.photos:
-        for i, ph in enumerate(list(st.session_state.photos)):
-            a, b, c = st.columns([1,2,0.6])
-            with a:
-                st.image(ph.content, use_container_width=True)
-            with b:
-                st.session_state.photos[i].caption = st.text_input("Didascalia", ph.caption, key=f"cap_{i}")
-            with c:
-                if st.button("Rimuovi", key=f"ph_rm_{i}"):
-                    st.session_state.photos.pop(i); st.rerun()
-
-    st.divider()
-    st.subheader("Diagramma impianto")
-    mode = st.radio("Metodo", ["Carica immagine", "Disegna"], horizontal=True)
-    if mode == "Carica immagine":
-        d = st.file_uploader("Carica diagramma (JPG/PNG)", type=["jpg","jpeg","png"])
-        if d:
-            st.session_state.diagram = d.getvalue()
-            st.image(st.session_state.diagram, use_container_width=True)
-    else:
-        canvas = st_canvas(
-            fill_color="rgba(255,255,255,0)",
-            stroke_width=3,
-            stroke_color="#000000",
-            background_color="#FFFFFF",
-            height=420,
-            drawing_mode="freedraw",
-            key="canvas",
-        )
-        if st.button("Salva disegno come diagramma", type="primary"):
-            if canvas.image_data is not None:
-                import PIL.Image
-                img = PIL.Image.fromarray(canvas.image_data.astype("uint8"), mode="RGBA").convert("RGB")
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                st.session_state.diagram = buf.getvalue()
-                st.success("Diagramma salvato.")
-        if st.session_state.diagram:
-            st.image(st.session_state.diagram, caption="Diagramma pronto", use_container_width=True)
-
-with tab4:
-    st.subheader("Schede tecniche")
-    att = st.file_uploader("Carica schede tecniche (PDF/DOCX)", type=["pdf","docx"], accept_multiple_files=True)
-    if att:
-        existing = {a.filename for a in st.session_state.allegati}
-        for u in att:
-            if u.name in existing:
-                continue
-            kind = "pdf" if u.name.lower().endswith(".pdf") else "docx"
-            st.session_state.allegati.append(AllegatoItem(filename=u.name, content=u.getvalue(), kind=kind))
-        st.success("Allegati aggiunti.")
-    if st.session_state.allegati:
-        for i, a in enumerate(list(st.session_state.allegati)):
-            x, y = st.columns([4,1])
-            with x:
-                st.write(f"📎 {a.filename} ({a.kind})")
-            with y:
-                if st.button("Rimuovi", key=f"att_rm_{i}"):
-                    st.session_state.allegati.pop(i); st.rerun()
+# Carica opzionale immagine timbro/firma per la cover
+timbro_file = st.file_uploader("Timbro/Firma (PNG) - opzionale", type=["png"], accept_multiple_files=False)
+timbro_bytes = timbro_file.getvalue() if timbro_file else None
 
 st.divider()
-st.subheader("Generazione")
-with st.expander("Debug template"):
-    from docx import Document
-    import io as _io
-    try:
-        _d = Document(_io.BytesIO(st.session_state.template_bytes))
-        text = "\n".join([p.text for p in _d.paragraphs])
-        st.write("Marker presenti nel body:", {m: (m in text) for m in ["{{LAYOUT_DESCRITTIVO}}","{{COLONNINE}}","{{FOTO_GALLERY}}","{{DIAGRAMMA_IMPIANTO}}","{{ALLEGATI_SCHEDA_TECNICA}}","{{DITTA_ESECUTRICE}}"]})
-        st.caption("Nota: se i titoli/marker sono dentro tabelle, non compaiono qui. La v12 li cerca anche dentro le tabelle durante la generazione.")
-    except Exception as e:
-        st.write(e)
 
-fname = st.text_input("Nome file", "relazione_tecnica")
-colG1, colG2 = st.columns([1,1])
-with colG1:
-    if st.button("Genera DOCX", type="primary", use_container_width=True):
-        docx = generate_document(
-            template=st.session_state.template_bytes,
-            data=data_obj,
-            progettista=progettista,
-            esecutrice=esecutrice,
-            colonnine=st.session_state.colonnine,
-            photos=st.session_state.photos,
-            diagram_bytes=st.session_state.diagram,
-            allegati=st.session_state.allegati,
-            extra_fields={f['label']: st.session_state.aggiungere_values.get(f['key'], '') for f in st.session_state.aggiungere_fields},
-        )
-        st.session_state["last_docx"] = docx
-        st.success("Documento generato.")
+st.divider()
 
-with colG2:
-    if st.session_state.get("last_docx"):
-        st.download_button(
-            "Scarica DOCX",
-            data=st.session_state["last_docx"],
-            file_name=f"{fname}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
+# =========================
+# SOGGETTI COINVOLTI
+# =========================
+st.subheader("Soggetti coinvolti")
+
+c1, c2 = st.columns(2)
+with c1:
+    st.markdown("**Impresa installatrice**")
+    impresa = st.text_input("Ragione sociale", "XXXX (Inserire)")
+    impresa_sede = st.text_input("Sede legale", "XXXX (Inserire)")
+    impresa_piva = st.text_input("P.IVA / C.F.", "XXXX (Inserire)")
+    impresa_rea = st.text_input("N. iscrizione CCIAA / REA", "XXXX (Inserire)")
+    impresa_resp = st.text_input("Responsabile tecnico", "XXXX (Inserire)")
+    impresa_cont = st.text_input("Recapiti", "XXXX (Inserire)")
+with c2:
+    st.markdown("**Progettista / Tecnico redattore**")
+    progettista_blocco = st.text_area(
+        "Dati progettista (blocco)",
+        value=(
+            "Ing. Pasquale Senese\n"
+            "Via Francesco Soave 30 - 20135 Milano (MI) - Cell: 340 5731381\n"
+            "Email: pasquale.senese@ingpec.eu  P.IVA: 14572980960"
+        ),
+        height=100,
+    )
+
+# Deriva il nominativo (prima riga) per cover/title-block
+progettista_nome = (progettista_blocco.strip().splitlines()[0].strip() if progettista_blocco.strip() else "")
+
+st.divider()
+
+# =========================
+# DATI TECNICI MINIMI
+# =========================
+st.subheader("Dati tecnici minimi (da compilare)")
+
+c1, c2, c3, c4 = st.columns(4)
+with c1:
+    pod = st.text_input("POD / punto di consegna", "XXXX (Inserire)")
+with c2:
+    contatore_ubi = st.text_input("Contatore ubicato in", "XXXX (Inserire)")
+with c3:
+    potenza_prev_kw = st.number_input("Potenza prevista/servita (kW) – per stima Ib", min_value=0.5, max_value=500.0, value=6.0, step=0.5)
+with c4:
+    cosphi = st.number_input("cosφ (se noto)", min_value=0.3, max_value=1.0, value=0.95, step=0.01)
+
+Ib = corrente_da_potenza(potenza_prev_kw, alimentazione, cosphi=cosphi)
+st.info(f"Corrente di impiego indicativa Ib ≈ **{Ib:.1f} A** (stima da potenza {potenza_prev_kw:.1f} kW, cosφ={cosphi:.2f}).")
+
+ambienti = st.multiselect(
+    "Destinazione d’uso / ambienti (checklist)",
+    ["Ordinario", "Bagno", "Esterno", "Locale tecnico", "Autorimessa", "Maggior rischio incendio", "Cantiere", "Altro"],
+    default=["Ordinario"],
+)
+amb_altro = ""
+if "Altro" in ambienti:
+    amb_altro = st.text_input("Specificare 'Altro'", "XXXX (Inserire)")
+
+# Campi per eliminare XXXX in premessa/norme
+st.subheader("Fonti dati e prescrizioni (per evitare 'XXXX' nel PDF)")
+c1, c2 = st.columns(2)
+with c1:
+    fonte_dati = st.text_input("Fonte dati fornitura/condizioni (Committente/Impresa/Gestore)", "Committente")
+with c2:
+    prescrizioni_enti = st.text_input("Prescrizioni Enti/Autorità locali (se presenti)", "Nessuna / Non applicabile")
+
+
+# =========================
+# CRITERIO DI PROGETTO (ESTESO - da relazione tecnico-specialistica)
+# =========================
+st.subheader("Criterio di progetto degli impianti (testo esteso)")
+st.caption(
+    "Questo capitolo riprende la relazione tecnico-specialistica (con formule). "
+    "Se lo disattivi, non verrà stampato nel PDF."
+)
+includi_criterio = st.checkbox("Includi capitolo 3 esteso (criterio di progetto)", value=True)
+cosphi_ricarica = st.number_input(
+    "Fattore di potenza (cosφ) per linee prese di ricarica (se presenti)",
+    min_value=0.50, max_value=1.00, value=0.99, step=0.01
+)
+criterio_note = st.text_area("Note/integrazioni al capitolo 3 (opzionale)", "", height=90)
+
+
+st.divider()
+
+# =========================
+# CONFINE INTERVENTO
+# =========================
+st.subheader("Confini dell’intervento e interfacce")
+
+c1, c2 = st.columns(2)
+with c1:
+    compresi = st.text_area("L’intervento comprende", "XXXX (Inserire elenco sintetico delle opere incluse).", height=120)
+with c2:
+    esclusi = st.text_area("Sono esclusi", "XXXX (Inserire, es. parti preesistenti non modificate, linee a monte, apparecchiature non comprese).", height=120)
+
+integrazione = st.selectbox("Integrazione con impianto esistente", ["Sì", "No"], index=0)
+integrazione_note = ""
+if integrazione == "Sì":
+    integrazione_note = st.text_area("Descrizione e condizioni riscontrate/limiti di intervento", "XXXX (Inserire).", height=90)
+
+st.divider()
+
+# =========================
+# QUADRI
+# =========================
+st.subheader("Quadri elettrici e distribuzione (tabella sintetica)")
+
+default_quadri = pd.DataFrame([
+    {"Quadro":"QG", "Ubicazione":"XXXX (Inserire)", "IP":"XX", "Interruttore generale (tipo/In)":"XXXX (Inserire)", "Differenziale generale (tipo/Idn, se presente)":"XXXX (Inserire)"},
+])
+quadri_df = st.data_editor(default_quadri, num_rows="dynamic", use_container_width=True, key="quadri")
+
+st.divider()
+
+# =========================
+# LINEE / CIRCUITI
+# =========================
+st.subheader("Circuiti, cavi e protezioni (con calcolo ΔV)")
+
+st.caption("Per ciascun circuito: scegli **Tipo cavo (FS17/FG17/FG16OR16/FG16OM16)**, sezione, protezione e differenziale. "
+           "Il calcolo automatico mostra ΔV% e un esito sintetico.")
+
+default_linee = pd.DataFrame([
+    {"Circuito/Linea":"L1", "Destinazione/Utilizzo":"Prese", "Potenza_kW":2.0, "Posa":"XXXX", "Lunghezza_m":25,
+     "Tipo_cavo":"FG16OM16", "Formazione":"3G", "Sezione_mm2":2.5,
+     "Protezione (MT/MTD)":"MT 16A curva C", "Curva":"C", "In_A":16,
+     "Differenziale (tipo/Idn)":"Tipo A 30mA", "Tipo_diff":"A", "Idn_mA":30,
+     "Ra_Ohm (solo TT)":30.0},
+])
+
+linee_df = st.data_editor(
+    default_linee,
+    num_rows="dynamic",
+    use_container_width=True,
+    key="linee",
+    column_config={
+        "Tipo_cavo": st.column_config.SelectboxColumn("Tipo cavo", options=CAVI_TIPO, required=True),
+        "Formazione": st.column_config.TextColumn("Formazione (es. 3G / 5G)", help="Esempio: 3G per monofase+PE, 5G per trifase+N+PE."),
+        "Tipo_diff": st.column_config.SelectboxColumn("Tipo diff", options=["AC","A","F","B"], required=False),
+        "Idn_mA": st.column_config.NumberColumn("Idn (mA)", min_value=0, max_value=3000, step=1),
+    }
+)
+
+def valuta_linea(row):
+    p = float(row.get("Potenza_kW") or 0.0)
+    l = float(row.get("Lunghezza_m") or 0.0)
+    s = float(row.get("Sezione_mm2") or 0.0)
+    curva = str(row.get("Curva") or "C")
+    InA = float(row.get("In_A") or 0.0)
+
+    ib_linea = corrente_da_potenza(p, alimentazione, cosphi=cosphi) if p > 0 else Ib
+
+    dv = caduta_tensione(ib_linea, l, s, alimentazione, cosphi=cosphi)
+    esito = "OK" if dv.delta_v_percent <= dv_lim else "ΔV"
+
+    note = []
+    if sistema == "TT":
+        ra = float(row.get("Ra_Ohm (solo TT)") or 0.0)
+        idn_a = float(row.get("Idn_mA") or 0.0) / 1000.0
+        if ra > 0 and idn_a > 0:
+            ok_tt = verifica_tt_ra_idn(ra, idn_a, ul=ul_tt)
+            note.append("TT OK" if ok_tt else "TT NO")
+            if not ok_tt:
+                esito = "TT"
+    else:
+        if InA > 0:
+            zs_max = zs_massima_tn(230.0, curva, InA)
+            note.append(f"Zs_max≈{zs_max:.2f}Ω")
+
+    return dv.delta_v_percent, esito, "; ".join(note)
+
+out = [valuta_linea(r) for _, r in linee_df.iterrows()]
+
+linee_df_calc = linee_df.copy()
+linee_df_calc["ΔV_%"] = [round(x[0], 2) for x in out]
+linee_df_calc["Esito"] = [x[1] for x in out]
+linee_df_calc["Note"] = [x[2] for x in out]
+
+st.dataframe(linee_df_calc, use_container_width=True)
+
+st.divider()
+
+# =========================
+# SICUREZZA / TERRA / SPD + CPI
+# =========================
+st.subheader("Sicurezza elettrica, terra, SPD (sintesi)")
+
+c1, c2 = st.columns(2)
+with c1:
+    terra_cfg = st.selectbox("Configurazione impianto di terra", ["Nuovo", "Esistente verificato", "Esistente non oggetto di intervento (da motivare)"], index=1)
+    dispersore = st.text_input("Dispersore (descrizione)", "XXXX (Inserire)")
+    equipot = st.selectbox("Collegamenti equipotenziali principali", ["Presenti", "Parziali", "Assenti (da adeguare/indicare)"], index=0)
+with c2:
+    spd_esito = st.selectbox("Protezione contro sovratensioni (SPD) – esito", ["Non previsto", "Previsto", "Presente preesistente"], index=0)
+    spd_tipo = st.multiselect("Se installato: tipologia SPD", ["Tipo 1", "Tipo 2", "Tipo 3"], default=[])
+    spd_quadro = st.text_input("Quadro di installazione SPD (se pertinente)", "")
+    spd_caratt = st.text_input("Caratteristiche principali SPD (se pertinente)", "")
+
+st.subheader("Prevenzione incendi / VV.F. (se pertinente)")
+c1, c2, c3 = st.columns(3)
+with c1:
+    attivita_vvf = st.selectbox("Attività soggetta VV.F. (DPR 151/2011)", ["Non pertinente", "Sì", "No (da verificare)"], index=0)
+with c2:
+    cpi = st.selectbox("CPI / SCIA antincendio", ["Non pertinente", "Presente", "Non presente", "In corso"], index=0)
+with c3:
+    vvf_note = st.text_input("Note VV.F. (se pertinente)", "—")
+
+st.divider()
+
+# =========================
+# VERIFICHE
+# =========================
+st.subheader("Verifiche, prove e collaudi (registro sintetico)")
+
+ver_df = pd.DataFrame([
+    {"Prova / Verifica":"Esame a vista", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Continuità PE ed equipotenziale", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Resistenza di isolamento", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Prova differenziali (Idn/tempo)", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Polarità / sequenza fasi (se pertinente)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"TT: misura Ra e coordinamento con Idn (se TT)", "Esito":"positivo", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"TN: misura Zs e verifica intervento (se TN)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
+    {"Prova / Verifica":"Altre prove (SPD, emergenza, comandi, ecc.)", "Esito":"non previsto", "Strumento":"—", "Note":"—"},
+])
+ver_df = st.data_editor(ver_df, num_rows="dynamic", use_container_width=True, key="verifiche")
+
+st.divider()
+
+# =========================
+# FIRMA
+# =========================
+st.subheader("Firma (stampa nel PDF)")
+c1, c2, c3 = st.columns(3)
+with c1:
+    luogo_firma = st.text_input("Luogo firma", "XXXX (Inserire)")
+with c2:
+    data_firma = st.date_input("Data firma", value=data_doc)
+with c3:
+    firmatario = st.text_input("Firmatario", "Ing. Pasquale Senese")
+
+st.divider()
+
+# =========================
+# GENERAZIONE PDF
+# =========================
+st.subheader("Genera PDF")
+
+amb_txt = ", ".join([a for a in ambienti if a != "Altro"])
+if "Altro" in ambienti:
+    amb_txt += f", Altro: {amb_altro}"
+
+premessa = f"""La presente Relazione Tecnico‑Specialistica è redatta nell’ambito dell’incarico conferito dalla Committenza "{committente}" e riguarda l’intervento "{oggetto}" presso "{luogo}".
+
+FINALITÀ E PERIMETRO
+Il documento ha lo scopo di:
+• descrivere l’impianto e le opere eseguite/da eseguire, con indicazione dei confini dell’intervento;
+• richiamare i riferimenti legislativi e normativi applicabili;
+• esplicitare i criteri di progettazione e le verifiche di coordinamento essenziali (correnti, cadute di tensione, protezioni), in coerenza con la regola dell’arte.
+
+VALENZA DOCUMENTALE
+La presente Relazione costituisce documento tecnico di progetto e di supporto alla documentazione di conformità ai sensi del D.M. 37/2008; non sostituisce la Dichiarazione di Conformità (DiCo) né i relativi allegati obbligatori, che restano di competenza dell’Impresa installatrice.
+
+RESPONSABILITÀ E DATI DI INGRESSO
+Le informazioni relative alla fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), destinazione d’uso e condizioni di esercizio sono state fornite da "{fonte_dati}" e/o rilevate in sito e/o confermate in data {data_doc.strftime('%d/%m/%Y')}. Eventuali porzioni preesistenti non oggetto di intervento e le interfacce con impianti/parti terze sono indicate nel paragrafo "Confini dell’intervento".
+
+REQUISITI MATERIALI E CONSEGNA
+Materiali e componenti devono essere conformi alle norme applicabili, provvisti di marcatura CE e, ove disponibile, marchio di conformità volontario (es. IMQ) o equivalente. Alla consegna l’impianto deve risultare conforme alla regola dell’arte e alle prescrizioni eventualmente impartite da Enti/Autorità competenti.
+"""
+
+norme = f"""Si riportano i principali riferimenti legislativi e normativi applicabili (elenco non esaustivo):
+
+• D.M. 22/01/2008 n. 37.
+• Legge 01/03/1968 n. 186.
+• D.Lgs. 09/04/2008 n. 81 e s.m.i.
+• D.P.R. 22/10/2001 n. 462 (ove applicabile).
+• Norme CEI applicabili (in particolare CEI 64-8, CEI 64-14, CEI EN 61439, CEI EN 60529; e, se pertinenti, CEI 81-10, CEI 0-10, CEI 0-21/0-16).
+• Regolamento Prodotti da Costruzione (UE) 305/2011 (CPR) e norme CEI-UNEL per i cavi (ove applicabile).
+
+Eventuali ulteriori prescrizioni di Enti/Autorità locali: {prescrizioni_enti}.
+"""
+
+dati_tecnici = f"""Tipo sistema di distribuzione: {sistema}. Tensione nominale: {tensione}. Potenza disponibile/contrattuale: {potenza_disp_kw}.
+POD: {pod} – contatore ubicato in: {contatore_ubi}.
+Alimentazione: {alimentazione}. Potenza prevista/servita (stima): {potenza_prev_kw:.1f} kW (Ib indicativa ≈ {Ib:.1f} A a cosφ={cosphi:.2f}).
+Ambientazioni particolari (se presenti): {amb_txt}.
+"""
+
+descrizione_impianto = f"""Il sito di intervento è ubicato in {luogo}. L’impianto è alimentato in bassa tensione dal punto di consegna del Distributore (POD: {pod}), tramite contatore/quadretto di misura ubicato in {contatore_ubi}.
+Tipo sistema di distribuzione: {sistema}. Tensione nominale: {tensione}. Potenza disponibile/contrattuale: {potenza_disp_kw}.
+
+La ripartizione e distribuzione interna avviene mediante linee in cavo conforme CEI/UNEL e componenti marcati CE (e, ove disponibile, IMQ o equivalente). Le condutture sono posate in tubazioni/canalizzazioni idonee e con protezione meccanica adeguata; i circuiti risultano identificati e separati per destinazione d’uso (illuminazione, prese, ausiliari, ecc.), privilegiando la manutenibilità.
+
+Scopo dell’intervento (descrizione sintetica): {oggetto}
+
+Le opere impiantistiche previste comprendono, in funzione dell’intervento, la realizzazione e/o modifica di linee di alimentazione dedicate, installazione di punti di utilizzo, posa di tubazioni/canalizzazioni, installazione o adeguamento di quadri elettrici (generale e/o di zona), apparecchi di protezione e comando, morsetterie e accessori, nonché collegamenti al sistema di protezione (PE) e ai collegamenti equipotenziali.
+
+I conduttori sono identificati secondo codifica colori (PE giallo-verde, N blu, fasi marrone/nero/grigio) e marcatura/etichettatura dove previsto. I dispositivi di protezione sono coordinati con le linee e con il sistema di distribuzione (TT/TN) in modo coerente con le norme tecniche applicabili.
+"""
+
+confini_txt = f"""L’intervento comprende: {compresi}
+
+Sono esclusi: {esclusi}
+
+Integrazione con impianto esistente: {integrazione}. {("Descrizione e limiti: " + integrazione_note) if integrazione == "Sì" else ""}
+"""
+
+# Costruisci frase "Idn/tipo" a partire dai dati delle linee (se presenti)
+diff_tipici = []
+for _, r in linee_df_calc.iterrows():
+    td = str(r.get("Tipo_diff") or "").strip()
+    idn = int(r.get("Idn_mA") or 0)
+    if td and idn:
+        diff_tipici.append(f"Tipo {td} {idn} mA")
+diff_frase = ", ".join(sorted(set(diff_tipici))) if diff_tipici else "N.D."
+
+vvf_blocco = ""
+if attivita_vvf != "Non pertinente" or cpi != "Non pertinente":
+    vvf_blocco = f"Prevenzione incendi / VV.F.: attività soggetta: {attivita_vvf}; CPI/SCIA: {cpi}. Note: {vvf_note}."
+
+sicurezza = f"""La protezione contro i contatti diretti è assicurata tramite isolamento delle parti attive, involucri/barriere con grado di protezione adeguato e corretta posa delle condutture.
+
+La protezione contro i contatti indiretti è assicurata mediante interruzione automatica dell’alimentazione, in accordo con CEI 64-8, tramite dispositivi differenziali e/o magnetotermici coordinati con l’impianto di terra (nei sistemi TT) o con il conduttore di protezione (nei sistemi TN).
+
+Protezione differenziale adottata (sintesi): {diff_frase}.
+
+Configurazione impianto di terra: {terra_cfg}. Dispersore: {dispersore}. Collegamenti equipotenziali principali: {equipot}.
+
+Protezione contro le sovratensioni (SPD) – esito: {spd_esito}. {("Tipologia: " + ", ".join(spd_tipo) + " – ") if spd_tipo else ""}quadro: {spd_quadro}. Caratteristiche: {spd_caratt}.
+
+Caduta di tensione: verificata entro il limite adottato in progetto: {dv_lim:.1f}%.
+{vvf_blocco}
+"""
+
+verifiche = """Ad ultimazione dei lavori, l’impianto è sottoposto alle verifiche previste dalla CEI 64-8 (Parte 6) e dalla CEI 64-14, con esecuzione e registrazione delle prove strumentali pertinenti al sistema di distribuzione (TT/TN) e alla tipologia di impianto. In particolare:\n\n"""
+for _, r in ver_df.iterrows():
+    verifiche += f"• {r.get('Prova / Verifica','')}: {r.get('Esito','')} – Strumento: {r.get('Strumento','')} – Note: {r.get('Note','')}\n"
+
+manutenzione = """Le attività di esercizio e manutenzione devono essere svolte da personale qualificato e autorizzato, in sicurezza e nel rispetto delle istruzioni dei costruttori e delle norme tecniche applicabili (es. CEI 0-10 / CEI 11-27, ove pertinenti).
+
+PIANO DI MANUTENZIONE (minimo consigliato)
+• Quadri elettrici: ispezione visiva, pulizia, verifica serraggi morsetti, integrità targhe/etichette e dispositivi di protezione;
+• Dispositivi differenziali: prova periodica con tasto "T" e verifiche strumentali (Idn/tempo) secondo periodicità e criticità del sito;
+• Conduttori e condutture: verifica integrità isolamento, fissaggi, protezioni meccaniche e segregazioni;
+• Collegamenti equipotenziali e PE: controllo continuità e integrità;
+• Comandi/emergenze (se presenti): prova funzionale e ripristino, verifica segnalazioni e cartellonistica;
+• Apparecchiature specifiche (es. wallbox/utenze dedicate): ispezione cavi e connettori, prova funzionale e aggiornamenti firmware se previsti dal costruttore.
+
+È raccomandata la tenuta di un registro manutenzione con data, attività eseguite, esito e nominativo dell’operatore."""
+
+allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati. 
+
+- Schema unifilare / multifilare dei quadri interessati: Obbligatorio.
+- Elenco linee/circuiti con cavo e protezione (tabella circuiti): Obbligatorio.
+- Verbali e report delle misure e prove strumentali
+- Schede tecniche principali componenti (quadri, interruttori, SPD, ecc.): Se disponibile.
+- Dichiarazioni/Marcature CE (ed eventuale IMQ) dei materiali: Se disponibile.
+- Report fotografico essenziale (quadri, targhette, collegamenti di terra, punti significativi): Consigliato.
+"""
+
+if st.button("Genera PDF"):
+    quadri_list = []
+    for _, q in quadri_df.iterrows():
+        quadri_list.append({
+            "Quadro": q.get("Quadro",""),
+            "Ubicazione": q.get("Ubicazione",""),
+            "IP": q.get("IP",""),
+            "Generale": q.get("Interruttore generale (tipo/In)",""),
+            "Diff": q.get("Differenziale generale (tipo/Idn, se presente)",""),
+        })
+
+    linee_list = []
+    for _, r in linee_df_calc.iterrows():
+        tipo = r.get("Tipo_cavo","")
+        form = r.get("Formazione","")
+        sez = r.get("Sezione_mm2","")
+        cavo_str = f"{tipo} {form}x{sez} mm²" if tipo and form and sez else ""
+        linee_list.append({
+            "Linea": r.get("Circuito/Linea",""),
+            "Uso": r.get("Destinazione/Utilizzo",""),
+            "Posa": r.get("Posa",""),
+            "L_m": r.get("Lunghezza_m",""),
+            "Cavo": cavo_str,
+            "Protezione": r.get("Protezione (MT/MTD)",""),
+            "Diff": r.get("Differenziale (tipo/Idn)",""),
+            "DV_perc": f"{r.get('ΔV_%','')}",
+            "Esito": r.get("Esito",""),
+        })
+
+
+    # === CAPITOLO 3 - CRITERIO DI PROGETTO (ESTESO) ===
+    criterio_testo = ""
+    if includi_criterio:
+        # Tipi cavo usati nelle linee (se presenti)
+        try:
+            tipi_cavo_usati = ", ".join(sorted(set([str(x) for x in linee_df_calc.get("Tipo_cavo", []).dropna().tolist()])))
+        except Exception:
+            tipi_cavo_usati = "N.D."
+
+        criterio_testo = (
+f"""Tutti i materiali e le apparecchiature utilizzati devono essere di alta qualità, prodotti da aziende affidabili, ben lavorati e adatti all'uso previsto, resistendo a sollecitazioni meccaniche, corrosione, calore, umidità e acque meteoriche (per installazione all’esterno). Devono garantire lunga durata, facilità di ispezione e manutenzione.
+È obbligatorio l'uso di componenti con marcatura CE e, se disponibile, marchio IMQ o equivalente europeo. I componenti senza marcatura CE devono avere una dichiarazione di conformità del costruttore ai requisiti di sicurezza delle normative CEI, UNI o IEC.
+
+3.1 Dimensionamento delle linee
+Le linee elettriche sono calcolate mediante l’utilizzo dei seguenti criteri progettuali:
+• La corrente di impiego (Ib) è calcolata considerando la potenza nominale delle apparecchiature elettriche. La tensione di alimentazione è pari a 230 V per le utenze monofase, 400 V per le utenze trifase. Fattore di potenza pari a {cosphi_ricarica:.2f} per le linee di alimentazione delle prese di ricarica (se presenti).
+• La corrente nominale della protezione (In), definita dal costruttore, è considerata come la corrente che l’interruttore può sopportare per un tempo indefinito senza che quest’ultimo subisca alcun danno.
+• La portata del cavo (Iz) è calcolata utilizzando le tabelle CEI UNEL 35024 e 35026, tenendo conto delle condizioni di posa, del tipo di isolante del cavo e della temperatura ambiente.
+I cavi di alimentazione sono dimensionati in modo da non subire danneggiamento causato da sovraccarichi e cortocircuiti mediante il coordinamento con la corrente nominale (In) del dispositivo di protezione a monte (vedi paragrafi 3.5.1 e 3.5.2).
+
+3.2 Calcolo della sezione del cavo in funzione della corrente di impiego (Ib)
+Nota la potenza assorbita dall’utenza, la corrente d’impiego (Ib) può essere calcolata come:
+Ib = (Ku · P) / (k · Vn · cosφ)
+
+dove:
+• k = 1 per i circuiti monofase; k = √3 per i circuiti trifase;
+• Ku è il coefficiente di utilizzazione della potenza nominale del carico;
+• P è la potenza totale dell’utenza [W];
+• Vn è la tensione nominale del sistema [V].
+Determinata la corrente di impiego per ogni utenza, è possibile dimensionare il cavo con portata Iz > Ib.
+
+3.3 Caduta di tensione
+Dopo aver determinato la sezione del cavo in funzione della corrente d’impiego, si verifica la caduta di tensione con la formula:
+ΔV = K · (R·cosφ + X·sinφ) · L · I
+
+dove:
+• K = 2 per le linee monofase (230 V); K = √3 per le linee trifase (400 V);
+• R e X sono resistenza e reattanza per unità di lunghezza [Ω/km];
+• I è la corrente di impiego;
+• L è la lunghezza della linea [m].
+La caduta di tensione percentuale è:
+ΔV% = (ΔV / Vn) · 100
+La caduta di tensione percentuale complessiva non deve superare {dv_lim:.1f}% (rif. CEI 64-8 art. 525).
+
+3.4 Sezione e tipologia dei cavi utilizzati
+I cavi utilizzati sono conformi al Regolamento UE 305/2011 (CPR), all’unificazione UNEL e alle norme costruttive CEI.
+Per il dimensionamento dei conduttori di neutro e del conduttore di protezione (PE) si fa riferimento alla CEI 64-8/5 par. 543.1.2 tabella 54F:
+• per sezione fase Sf ≤ 16 mm²: SPE = Sf
+• per 16 < Sf ≤ 35 mm²: SPE = 16 mm²
+• per Sf > 35 mm²: SPE = Sf/2
+Qualora il PE non faccia parte della conduttura di alimentazione (CEI 64-8/5 par. 543.1.3), valgono i criteri sopra con minimi: 2,5 mm² Cu (con protezione meccanica) o 4 mm² Cu (senza protezione meccanica).
+
+3.4.1 Tipologia dei cavi
+I cavi impiegati nel progetto (in funzione delle tratte e delle modalità di posa) appartengono alle tipologie selezionate nei circuiti: {tipi_cavo_usati}.
+Esempi (se pertinenti):
+• FG16(M)16 / FG16(O)M16 (o similari) per dorsali/esterni Uo/U 0,6/1 kV (HEPR G16 + guaina R16) – CEI UNEL 35318/35322.
+• FS17 450/750 V per cablaggi interni quadro e PE (unipolare senza guaina, PVC S17, CPR).
+
+3.4.2 Posa dei cavi
+Le tipologie di posa sono indicate nella tabella circuiti (campo “Posa”) e possono comprendere: tubazioni incassate/esterne, canalizzazioni, passerelle, tubazioni interrate, ecc. Gli attraversamenti di pareti/solai saranno ripristinati, ove necessario, con sigillature idonee a mantenere la compartimentazione. 
+Nei punti in cui le condutture e/o le tubazioni impiantistiche attraversano elementi di separazione resistenti al fuoco (pareti e solai di compartimentazione), dovrà essere garantito il mantenimento della prestazione di compartimentazione prevista dal progetto antincendio. In conformità ai principi del Codice di Prevenzione Incendi (D.M. 03/08/2015 e s.m.i.) e alle norme di prova e classificazione della resistenza al fuoco dei sistemi di attraversamento, tutti i fori e i passaggi dovranno essere ripristinati mediante sistemi di sigillatura certificati (firestop) con classificazione almeno pari a quella dell’elemento attraversato (es. EI/REI richiesto), installati secondo le istruzioni del produttore.
+A titolo esemplificativo, per tubazioni combustibili (PVC, PE, PP – tipicamente scarichi e pluviali) si impiegheranno collari tagliafuoco/REI con materiale termoespandente (intumescente) che, in caso d’incendio, occlude il foro sigillando il passaggio; per cavidotti/cavi e canalizzazioni si utilizzeranno idonei sistemi (malte o sigillanti intumescenti, schiume certificate, bende/manicotti, pannelli o cuscini) compatibili con il tipo di impianto e con le condizioni di posa.
+I prodotti utilizzati dovranno essere marcati CE ove applicabile ai sensi del Regolamento (UE) 305/2011 (CPR) oppure corredati da Valutazione Tecnica Europea (ETA) e Dichiarazione di Prestazione (DoP), con rapporti di prova secondo UNI EN 1366-3 (sigillature di attraversamenti) e classificazione secondo UNI EN 13501-2. L’impresa incaricata dell’esecuzione degli attraversamenti e del ripristino dovrà impiegare materiali idonei e certificati, assicurare la continuità della tenuta ai fumi e ai gas caldi e rilasciare idonea documentazione di posa (schede prodotto, istruzioni e, ove richiesto, dichiarazione di corretta installazione) a garanzia del mantenimento della compartimentazione di progetto
+
+Nei punti in cui le condutture e/o le tubazioni impiantistiche attraversano elementi di separazione resistenti al fuoco (pareti e solai di compartimentazione), dovrà essere garantito il mantenimento della prestazione di compartimentazione prevista dal progetto antincendio. In conformità ai principi del Codice di Prevenzione Incendi (D.M. 03/08/2015 e s.m.i.) e alle norme di prova e classificazione della resistenza al fuoco dei sistemi di attraversamento, tutti i fori e i passaggi dovranno essere ripristinati mediante sistemi di sigillatura certificati (firestop) con classificazione almeno pari a quella dell’elemento attraversato (es. EI/REI richiesto), installati secondo le istruzioni del produttore.
+I prodotti utilizzati dovranno essere marcati CE ove applicabile ai sensi del Regolamento (UE) 305/2011 (CPR) oppure corredati da Valutazione Tecnica Europea (ETA) e Dichiarazione di Prestazione (DoP), con rapporti di prova secondo UNI EN 1366-3 e classificazione secondo UNI EN 13501-2.
+Documentazione minima obbligatoria (a tutela della compartimentazione): l’Impresa incaricata dell’esecuzione degli attraversamenti e del ripristino dovrà consegnare, per ciascun attraversamento, registro attraversamenti (identificativo, ubicazione, elemento attraversato, prestazione richiesta, sistema adottato), schede prodotto/ETA/DoP, istruzioni di posa, e dichiarazione di corretta installazione, corredando il tutto con documentazione fotografica prima/dopo.
+In mancanza della suddetta documentazione, la verifica della conformità delle sigillature firestop non si intende effettuata dal Progettista/Tecnico redattore e resta in capo all’Impresa e alla Direzione Lavori/Committente secondo le rispettive competenze.
+Nota: Il presente documento non costituisce progetto antincendio né asseverazione ai fini della prevenzione incendi; i requisiti EI/REI e le soluzioni di compartimentazione sono quelli definiti dal progetto antincendio e dalle relative certificazioni.
+
+3.4.3 Colorazione dei conduttori
+I conduttori sono identificati secondo CEI-UNEL 00722 e 00712:
+• PE: giallo/verde; • Neutro: blu; • Fasi: marrone/grigio/nero.
+
+3.5 Protezioni dalle sovracorrenti
+La protezione dalle sovracorrenti è assicurata da interruttori automatici magnetotermici dimensionati affinché le curve I–t si mantengano al di sotto delle curve dei cavi protetti. Gli interruttori devono:
+• interrompere sovraccarichi e cortocircuiti prima di danni all’isolamento;
+• essere installati all’origine di ogni circuito/derivazione con portate differenti;
+• avere PdI/Icu > Icc presunta nel punto di installazione.
+
+3.5.1 Sovraccarichi (CEI 64-8 art. 433.2)
+Ib ≤ In ≤ Iz
+If ≤ 1,45 · Iz
+
+3.5.2 Cortocircuiti (CEI 64-8 art. 434.3)
+I² · t ≤ K² · S²
+
+3.6 Protezione dai contatti indiretti
+La protezione contro i contatti indiretti è realizzata mediante interruzione automatica dell’alimentazione (TT/TN) e/o componenti a doppio isolamento.
+
+3.6.1 Sistema TT (CEI 64-8 art. 413.1.4.2)
+Idn ≤ UL / Rt
+con UL = {ul_tt:.0f} V (ambiente ordinario) e Rt resistenza complessiva terra+conduttori di protezione.
+
+3.7 Protezione dai contatti diretti (CEI 64-8 art. 412)
+Isolamento delle parti attive e/o involucri/barriere (minimo IPXXB; superfici orizzontali a portata di mano: IPXXD). Vernici/smalti da soli non sono idonei.
+
+3.8 Potere di interruzione delle apparecchiature
+Icc-max < PdI (Icu) del dispositivo di protezione (rif. CEI EN 60947-2).
+
+3.9 Quadri elettrici
+Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cablaggio interno con conduttori idonei (es. FS17 CPR) e dimensionato per corrente nominale e cortocircuito nel punto di installazione.
+
+{("Integrazioni: " + criterio_note) if criterio_note.strip() else ""}"""
         )
+
+    payload = {
+        "committente_nome": committente,
+        "impianto_indirizzo": luogo,
+        "data": data_doc.strftime("%d/%m/%Y"),
+        "data_documento": data_doc.strftime("%d/%m/%Y"),
+        "header_titolo": "Relazione Tecnica - Impianto Elettrico (DiCo)",
+        "progettista_blocco": progettista_blocco,
+        "progettista_nome": progettista_nome,
+        "premessa": premessa,
+        "norme": norme,
+        "criterio_progetto": criterio_testo,
+        "dati_tecnici": dati_tecnici,
+        "descrizione_impianto": descrizione_impianto,
+        "confini": confini_txt,
+        "quadri": quadri_list,
+        "linee": linee_list,
+        "sicurezza": sicurezza,
+        "verifiche": verifiche,
+        "manutenzione": manutenzione,
+        "allegati": allegati,
+        "disclaimer_calcoli": "Calcoli e verifiche riportati sono di sintesi e a supporto documentale. Non sostituiscono un progetto esecutivo completo né le verifiche previste dalle norme applicabili.",
+        "titolo_cover": "RELAZIONE TECNICA - IMPIANTO ELETTRICO (DiCo)",
+        "sottotitolo_cover": oggetto,
+        "nome_progetto": nome_progetto,
+        "cover_style": ("engineering" if cover_style.startswith("Engineering") else "legacy"),
+        "firma": firmatario,
+        "timbro_bytes": timbro_bytes,
+        "oggetto_intervento": oggetto,
+        "tipologia": tipologia,
+        "sistema": sistema,
+        "tensione": tensione,
+        "potenza_disp": potenza_disp_kw,
+        "cod_progetto": cod_progetto,
+        "n_doc": n_doc,
+        "n_documento": n_doc,
+        "rev": revisione,
+        "revisione": revisione,
+        "impresa": impresa,
+        "luogo_firma": luogo_firma,
+        "data_firma": data_firma.strftime("%d/%m/%Y"),
+    }
+
+    pdf_bytes = genera_pdf_relazione_bytes(payload)
+    st.success("PDF generato.")
+    st.download_button(
+        "Scarica PDF",
+        data=pdf_bytes,
+        file_name="Relazione_Tecnica_DiCo_Impianto_Elettrico.pdf",
+        mime="application/pdf",
+    )
