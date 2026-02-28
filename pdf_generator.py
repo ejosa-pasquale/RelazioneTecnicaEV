@@ -31,6 +31,7 @@ from reportlab.platypus import (
     TableStyle,
     PageBreak,
     Flowable,
+    Image,
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
@@ -90,6 +91,88 @@ def _first_nonempty_line(text: str) -> str:
         if ln:
             return ln
     return ""
+
+
+def _img_flowable(img_bytes: Optional[bytes], max_w_pt: float, max_h_pt: float):
+    """Crea un Flowable Image scalato (mantiene aspect ratio) per stare nel riquadro."""
+    if not img_bytes:
+        return None
+    try:
+        reader = ImageReader(BytesIO(img_bytes))
+        iw, ih = reader.getSize()
+        if iw <= 0 or ih <= 0:
+            return None
+        scale = min(max_w_pt / float(iw), max_h_pt / float(ih))
+        w = float(iw) * scale
+        h = float(ih) * scale
+        return Image(BytesIO(img_bytes), width=w, height=h)
+    except Exception:
+        return None
+
+
+def _photo_grid_table(data: Dict[str, Any], styles):
+    """Tabella 2x2 con 4 foto in un'unica pagina."""
+    items = [
+        ("Foto 1 – Posizione Pulsante Antincendio (se presente)", data.get("foto1_bytes")),
+        ("Foto 2 – Quadro realizzato", data.get("foto2_bytes")),
+        ("Foto 3 – Percorso realizzato", data.get("foto3_bytes")),
+        ("Foto 4 – Apparecchiatura di ricarica (se installata)", data.get("foto4_bytes")),
+    ]
+
+    # Area utile A4 con margini 18mm (come nel doc): ~174mm x 261mm
+    # Griglia 2x2 con spazio didascalia.
+    cell_w = 86 * mm
+    cell_h = 118 * mm
+    caption_h = 10 * mm
+    img_max_w = cell_w - 6 * mm
+    img_max_h = cell_h - caption_h - 8 * mm
+
+    cap_style = ParagraphStyle(
+        "PhotoCaption",
+        parent=styles["BodyText"],
+        fontSize=9,
+        leading=10,
+        spaceAfter=2,
+    )
+    placeholder_style = ParagraphStyle(
+        "PhotoPlaceholder",
+        parent=styles["BodyText"],
+        fontSize=9,
+        leading=10,
+        textColor=colors.grey,
+    )
+
+    cells = []
+    for caption, b in items:
+        img = _img_flowable(b, img_max_w, img_max_h)
+        if img is None:
+            content = [
+                Paragraph(escape(caption), cap_style),
+                Spacer(1, 6 * mm),
+                Paragraph("(non presente)", placeholder_style),
+            ]
+        else:
+            content = [Paragraph(escape(caption), cap_style), Spacer(1, 2 * mm), img]
+        cells.append(content)
+
+    tdata = [
+        [cells[0], cells[1]],
+        [cells[2], cells[3]],
+    ]
+    tbl = Table(tdata, colWidths=[cell_w, cell_w], rowHeights=[cell_h, cell_h], hAlign="LEFT")
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    return tbl
 
 
 class _NumberedCanvas(canvas.Canvas):
@@ -705,9 +788,21 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(Spacer(1, 8))
 
     allg = data.get("allegati", "")
-    if _meaningful(allg):
+    has_photos = any(
+        data.get(k)
+        for k in ("foto1_bytes", "foto2_bytes", "foto3_bytes", "foto4_bytes")
+    )
+    if _meaningful(allg) or has_photos:
         story.append(_p("CAPITOLO 6 - ALLEGATI", h2))
-        story.append(_p(allg, styles["BodyText"]))
+        if _meaningful(allg):
+            story.append(_p(allg, styles["BodyText"]))
+
+        # Allegato fotografico: 1 pagina con griglia 2x2 (4 foto)
+        if has_photos:
+            story.append(Spacer(1, 10))
+            story.append(_p("Allegato fotografico", h3))
+            story.append(Spacer(1, 6))
+            story.append(_photo_grid_table(data, styles))
 
     # Firma finale (facoltativa)
     luogo_f = data.get("luogo_firma", "")

@@ -430,7 +430,57 @@ allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati.
 - Report fotografico essenziale (quadri, targhette, collegamenti di terra, punti significativi): Consigliato.
 """
 
+# =========================
+# ALLEGATI FOTOGRAFICI (4 FOTO IN UN'UNICA PAGINA)
+# =========================
+st.subheader("Allegati fotografici (opzionali)")
+st.caption("Carica fino a 4 foto: verranno inserite nel PDF in un'unica pagina (griglia 2×2).")
+
+fc1, fc2 = st.columns(2)
+with fc1:
+    foto1_file = st.file_uploader(
+        "Foto 1 – Posizione Pulsante Antincendio (se presente)",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="foto1",
+    )
+    if foto1_file:
+        st.image(foto1_file, caption="Foto 1", use_container_width=True)
+
+    foto3_file = st.file_uploader(
+        "Foto 3 – Percorso realizzato",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="foto3",
+    )
+    if foto3_file:
+        st.image(foto3_file, caption="Foto 3", use_container_width=True)
+
+with fc2:
+    foto2_file = st.file_uploader(
+        "Foto 2 – Quadro realizzato",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="foto2",
+    )
+    if foto2_file:
+        st.image(foto2_file, caption="Foto 2", use_container_width=True)
+
+    foto4_file = st.file_uploader(
+        "Foto 4 – Apparecchiatura di Ricarica (se installata)",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="foto4",
+    )
+    if foto4_file:
+        st.image(foto4_file, caption="Foto 4", use_container_width=True)
+
 if st.button("Genera PDF"):
+    foto1_bytes = foto1_file.getvalue() if foto1_file else None
+    foto2_bytes = foto2_file.getvalue() if foto2_file else None
+    foto3_bytes = foto3_file.getvalue() if foto3_file else None
+    foto4_bytes = foto4_file.getvalue() if foto4_file else None
+
     quadri_list = []
     for _, q in quadri_df.iterrows():
         quadri_list.append({
@@ -714,6 +764,10 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
         "cover_style": ("engineering" if cover_style.startswith("Engineering") else "legacy"),
         "firma": firmatario,
         "timbro_bytes": timbro_bytes,
+        "foto1_bytes": foto1_bytes,
+        "foto2_bytes": foto2_bytes,
+        "foto3_bytes": foto3_bytes,
+        "foto4_bytes": foto4_bytes,
         "oggetto_intervento": oggetto,
         "tipologia": tipologia,
         "sistema": sistema,
