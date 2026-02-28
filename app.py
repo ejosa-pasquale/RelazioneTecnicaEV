@@ -285,6 +285,21 @@ with tab1:
     st.subheader("Generazione & Download")
     st.info("La cover include Progettista e (se compilata) la Ditta esecutrice.")
 
+    # --- Sezioni del template (placeholder -> stato) ---
+    sec = [
+        ("Ditta esecutrice", "{{DITTA_ESECUTRICE}}", "Opzionale"),
+        ("Layout d'impianto", "{{LAYOUT_DESCRITTIVO}}", "Richiesto se presente nel template"),
+        ("Colonnine", "{{COLONNINE}}", "Richiesto se presente nel template"),
+        ("Foto gallery", "{{FOTO_GALLERY}}", "Richiesto se presente nel template"),
+        ("Diagramma impianto", "{{DIAGRAMMA_IMPIANTO}}", "Richiesto se presente nel template"),
+        ("Allegati scheda tecnica", "{{ALLEGATI_SCHEDA_TECNICA}}", "Richiesto se presente nel template"),
+    ]
+    st.markdown("### Sezioni rilevate nel template")
+    for label, marker, note in sec:
+        present = template_has_marker(st.session_state.template_bytes, marker)
+        st.write(("✅" if present else "➖") + f" **{label}** — {note}")
+
+
     
     missing = []
     for m in ["{{LAYOUT_DESCRITTIVO}}","{{COLONNINE}}","{{FOTO_GALLERY}}","{{DIAGRAMMA_IMPIANTO}}","{{ALLEGATI_SCHEDA_TECNICA}}","{{DITTA_ESECUTRICE}}"]:
@@ -307,6 +322,51 @@ with tab1:
     filename_base = st.text_input("Nome file", value="relazione_progetto_elettrico")
 
     if st.button("Genera e prepara download", type="primary", use_container_width=True):
+        # --- Requisiti sezioni (in base ai placeholder presenti nel template) ---
+        present = {
+            "{{DITTA_ESECUTRICE}}": template_has_marker(st.session_state.template_bytes, "{{DITTA_ESECUTRICE}}"),
+            "{{LAYOUT_DESCRITTIVO}}": template_has_marker(st.session_state.template_bytes, "{{LAYOUT_DESCRITTIVO}}"),
+            "{{COLONNINE}}": template_has_marker(st.session_state.template_bytes, "{{COLONNINE}}"),
+            "{{FOTO_GALLERY}}": template_has_marker(st.session_state.template_bytes, "{{FOTO_GALLERY}}"),
+            "{{DIAGRAMMA_IMPIANTO}}": template_has_marker(st.session_state.template_bytes, "{{DIAGRAMMA_IMPIANTO}}"),
+            "{{ALLEGATI_SCHEDA_TECNICA}}": template_has_marker(st.session_state.template_bytes, "{{ALLEGATI_SCHEDA_TECNICA}}"),
+        }
+
+        missing_required = []
+
+        # Layout: richiedi almeno una riga in incluso o escluso se la sezione è presente
+        if present["{{LAYOUT_DESCRITTIVO}}"]:
+            if not (layout_incluso.strip() or layout_escluso.strip()):
+                missing_required.append("LAYOUT D'IMPIANTO (compila almeno Incluso o Escluso)")
+
+        # Colonnine: richiedi almeno una colonnina se la sezione è presente
+        if present["{{COLONNINE}}"]:
+            if len(st.session_state.colonnine) == 0:
+                missing_required.append("COLONNINE (aggiungi almeno una colonnina)")
+
+        # Foto: richiedi almeno una foto se la sezione è presente
+        if present["{{FOTO_GALLERY}}"]:
+            if len(st.session_state.photos) == 0:
+                missing_required.append("FOTO (carica almeno una foto)")
+
+        # Diagramma: richiedi un diagramma se la sezione è presente
+        if present["{{DIAGRAMMA_IMPIANTO}}"]:
+            if not st.session_state.diagram_bytes:
+                missing_required.append("DIAGRAMMA IMPIANTO (carica o disegna un diagramma)")
+
+        # Allegati: richiedi almeno un allegato se la sezione è presente
+        if present["{{ALLEGATI_SCHEDA_TECNICA}}"]:
+            if len(st.session_state.allegati) == 0:
+                missing_required.append("ALLEGATI SCHEDA TECNICA (carica almeno un PDF/DOCX)")
+
+        # Ditta esecutrice: opzionale anche se il placeholder è presente
+        # (se compili qualcosa, verrà inserita; altrimenti resterà vuota)
+
+        if missing_required:
+            st.error("Mancano dati obbligatori per queste sezioni del template:
+- " + "
+- ".join(missing_required))
+            st.stop()
         progettista = ProgettistaData(
             nome=progettista_nome,
             indirizzo=progettista_indirizzo,
