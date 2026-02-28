@@ -1675,9 +1675,15 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
 
         # Sezione "VERIFICHE" (collaudo) -> stampa tabella verifiche/prove compilata in app
         if titolo == "VERIFICHE":
-            ver = data.get("verifiche") or []
+            # In app: "verifiche" è un testo narrativo; la tabella compilabile è in "verifiche_tabella".
+            # Manteniamo compatibilità: accettiamo anche una lista in data["verifiche"] (vecchie versioni).
+            ver = data.get("verifiche_tabella")
+            if not isinstance(ver, list):
+                ver = data.get("verifiche") if isinstance(data.get("verifiche"), list) else []
             filtered = []
             for r in ver:
+                if not isinstance(r, dict):
+                    continue
                 esito = str(r.get("Esito","")).strip()
                 note = str(r.get("Note","")).strip()
                 if not _meaningful(esito) and not _meaningful(note):
