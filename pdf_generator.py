@@ -258,6 +258,28 @@ def _kv_table(rows: List[list], col_widths):
     return tbl
 
 
+def _table_style(header_rows: int = 1) -> TableStyle:
+    """Stile tabellare standard.
+
+    Usato in varie sezioni (quadri, linee, checklist, verifiche) per avere
+    un output coerente e leggibile.
+    """
+    hr = max(1, int(header_rows or 1))
+    return TableStyle(
+        [
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("BACKGROUND", (0, 0), (-1, hr - 1), colors.whitesmoke),
+            ("FONTNAME", (0, 0), (-1, hr - 1), "Helvetica-Bold"),
+        ]
+    )
+
+
 def _first_nonempty_line(text: str) -> str:
     for ln in (text or "").splitlines():
         ln = ln.strip()
