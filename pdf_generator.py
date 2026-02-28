@@ -925,9 +925,14 @@ def _add_progetto_elettrico_relazione_tecnica(story, data, styles, h2, h3, body)
 def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     buf = BytesIO()
     styles = getSampleStyleSheet()
+    # Table text styles (avoid KeyError if referenced later)
+    if "TableHeader" not in styles:
+        styles.add(ParagraphStyle("TableHeader", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9))
+    if "TableCell" not in styles:
+        styles.add(ParagraphStyle("TableCell", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9))
 
-    th = ParagraphStyle("th", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=9)
-    tc = ParagraphStyle("tc", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=9)
+    th = styles["TableHeader"]
+    tc = styles["TableCell"]
 
     h1 = ParagraphStyle("H1", parent=styles["Heading1"], spaceBefore=6, spaceAfter=8)
     h2 = ParagraphStyle("H2", parent=styles["Heading2"], spaceBefore=8, spaceAfter=6)
