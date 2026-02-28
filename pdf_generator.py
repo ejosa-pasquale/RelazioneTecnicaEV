@@ -64,6 +64,153 @@ def _meaningful(value: Any) -> bool:
     return True
 
 
+
+def _std_premessa(data: Dict[str, Any]) -> str:
+    comm = _first_non_empty([data.get("committente_nome"), "Committenza"])
+    ogg = _first_non_empty([data.get("oggetto_intervento"), "l’intervento in oggetto"])
+    luogo = _first_non_empty([data.get("impianto_indirizzo"), data.get("luogo"), "sito di intervento"])
+    data_conf = _first_non_empty([data.get("data_conferma"), data.get("data_doc"), ""])
+    fonte = _first_non_empty([data.get("fonte_dati"), "Committente"])
+    # testo coerente con un report DiCo: tecnico + perimetro + responsabilità dati
+    return (
+        f"La presente Relazione Tecnico-Specialistica è redatta nell’ambito dell’incarico conferito dalla {comm} "
+        f"e riguarda {ogg} presso {luogo}.\n\n"
+        "<b>FINALITÀ E PERIMETRO</b>\n"
+        "Il documento ha lo scopo di:\n"
+        "• descrivere l’impianto e le opere eseguite/da eseguire, con indicazione dei confini dell’intervento;\n"
+        "• richiamare i riferimenti legislativi e normativi applicabili;\n"
+        "• esplicitare i criteri di progettazione e le verifiche di coordinamento essenziali (correnti, cadute di tensione, protezioni), "
+        "in coerenza con la regola dell’arte.\n\n"
+        "<b>VALENZA DOCUMENTALE</b>\n"
+        "La presente Relazione costituisce documento tecnico di progetto e di supporto alla documentazione di conformità ai sensi del D.M. 37/2008; "
+        "non sostituisce la Dichiarazione di Conformità (DiCo) né i relativi allegati obbligatori, che restano di competenza dell’Impresa installatrice.\n\n"
+        "<b>RESPONSABILITÀ E DATI DI INGRESSO</b>\n"
+        f"Le informazioni relative alla fornitura elettrica (POD, potenza disponibile/contrattuale, caratteristiche del punto di consegna), "
+        f"destinazione d’uso e condizioni di esercizio sono state fornite da {fonte} e/o rilevate in sito"
+        + (f" e/o confermate in data {data_conf}." if _meaningful(data_conf) else ".")
+        + " Eventuali porzioni preesistenti non oggetto di intervento e le interfacce con impianti/parti terze sono indicate nel paragrafo “Confini dell’intervento”.\n\n"
+        "<b>REQUISITI MATERIALI E CONSEGNA</b>\n"
+        "Materiali e componenti devono essere conformi alle norme applicabili, provvisti di marcatura CE e, ove disponibile, marchio di conformità volontario "
+        "(es. IMQ) o equivalente. Alla consegna l’impianto deve risultare conforme alla regola dell’arte e alle prescrizioni eventualmente impartite da Enti/Autorità competenti."
+    )
+
+def _std_norme(data: Dict[str, Any]) -> str:
+    enti = data.get("prescrizioni_enti")
+    enti_txt = enti if _meaningful(enti) else "Nessuna / Non applicabile"
+    return (
+        "Si riportano i principali riferimenti legislativi e normativi applicabili (elenco non esaustivo):\n"
+        "• D.M. 22/01/2008 n. 37.\n"
+        "• Legge 01/03/1968 n. 186.\n"
+        "• D.Lgs. 09/04/2008 n. 81 e s.m.i.\n"
+        "• D.P.R. 22/10/2001 n. 462 (ove applicabile).\n"
+        "• Norme CEI applicabili (in particolare CEI 64-8, CEI 64-14, CEI EN 61439, CEI EN 60529; e, se pertinenti, CEI 81-10, CEI 0-10, CEI 0-21/0-16).\n"
+        "• Regolamento Prodotti da Costruzione (UE) 305/2011 (CPR) e norme CEI-UNEL per i cavi (ove applicabile).\n"
+        f"Eventuali ulteriori prescrizioni di Enti/Autorità locali: {enti_txt}."
+    )
+
+def _std_criteri_progetto(data: Dict[str, Any]) -> str:
+    # Testo tecnico completo, coerente con relazione DiCo. I campi specifici (tipo cavo, posa, ecc.) sono riportati nelle tabelle di sintesi.
+    return (
+        "Tutti i materiali e le apparecchiature utilizzati devono essere di alta qualità, prodotti da aziende affidabili, ben lavorati e adatti all'uso previsto, "
+        "resistendo a sollecitazioni meccaniche, corrosione, calore, umidità e acque meteoriche (per installazione all’esterno). Devono garantire lunga durata, "
+        "facilità di ispezione e manutenzione.\n\n"
+        "È obbligatorio l'uso di componenti con marcatura CE e, se disponibile, marchio IMQ o equivalente europeo. I componenti senza marcatura CE devono avere "
+        "una dichiarazione di conformità del costruttore ai requisiti di sicurezza delle normative CEI, UNI o IEC.\n\n"
+        "<b>3.1 Dimensionamento delle linee</b>\n"
+        "Le linee elettriche sono calcolate mediante l’utilizzo dei seguenti criteri progettuali:\n"
+        "• La corrente di impiego (Ib) è calcolata considerando la potenza nominale delle apparecchiature elettriche.\n"
+        "• La corrente nominale della protezione (In) è considerata come la corrente che l’interruttore può sopportare per un tempo indefinito senza danni.\n"
+        "• La portata del cavo (Iz) è valutata in funzione delle condizioni di posa e delle tabelle applicabili.\n\n"
+        "<b>3.2 Sezione cavo in funzione di Ib</b>\n"
+        "Nota la potenza assorbita dall’utenza, la corrente d’impiego (Ib) può essere calcolata come:\n"
+        "Ib = (Ku · P) / (k · Vn · cosφ)\n"
+        "dove k = 1 (monofase) o k = √3 (trifase). Determinata Ib, si dimensiona il cavo con portata Iz > Ib.\n\n"
+        "<b>3.3 Caduta di tensione</b>\n"
+        "La caduta di tensione percentuale complessiva non deve superare 4.0% (rif. CEI 64-8 art. 525), salvo diverse esigenze di progetto.\n\n"
+        "<b>3.4 Cavi, posa e identificazione</b>\n"
+        "I cavi utilizzati sono conformi al Regolamento UE 305/2011 (CPR), alle norme costruttive CEI e all’unificazione UNEL. "
+        "I conduttori sono identificati secondo CEI-UNEL 00722 e 00712 (PE giallo/verde; neutro blu; fasi marrone/nero/grigio). "
+        "Le modalità di posa e gli attraversamenti di pareti/solai devono mantenere, ove necessario, le prestazioni richieste (es. compartimentazioni).\n\n"
+        "<b>3.5 Protezioni</b>\n"
+        "La protezione dalle sovracorrenti è assicurata da interruttori automatici dimensionati e coordinati con le linee. "
+        "Devono interrompere sovraccarichi e cortocircuiti prima di danni all’isolamento e avere potere di interruzione adeguato (PdI/Icu > Icc presunta).\n\n"
+        "<b>3.6 Contatti indiretti</b>\n"
+        "La protezione contro i contatti indiretti è realizzata mediante interruzione automatica dell’alimentazione (TT/TN) e/o componenti a doppio isolamento. "
+        "Per sistemi TT si verifica il coordinamento Idn ≤ UL / Rt (UL = 50 V in ambienti ordinari).\n\n"
+        "<b>3.7 Contatti diretti</b>\n"
+        "La protezione contro i contatti diretti è assicurata tramite isolamento delle parti attive e/o involucri/barriere con grado di protezione adeguato (minimo IPXXB).\n\n"
+        "<b>3.8 Potere di interruzione</b>\n"
+        "Icc-max < PdI (Icu) del dispositivo di protezione (rif. CEI EN 60947-2).\n\n"
+        "<b>3.9 Quadri elettrici</b>\n"
+        "Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cablaggio interno con conduttori idonei e dimensionato per corrente nominale e cortocircuito nel punto di installazione."
+    )
+def _std_manutenzione() -> str:
+    return (
+        "Le attività di esercizio e manutenzione devono essere svolte da personale qualificato e autorizzato, in sicurezza e nel rispetto delle istruzioni "
+        "dei costruttori e delle norme tecniche applicabili (es. CEI 0-10 / CEI 11-27, ove pertinenti).\n\n"
+        "<b>PIANO DI MANUTENZIONE (minimo consigliato)</b>\n"
+        "• Quadri elettrici: ispezione visiva, pulizia, verifica serraggi morsetti, integrità targhe/etichette e dispositivi di protezione;\n"
+        "• Dispositivi differenziali: prova periodica con tasto “T” e verifiche strumentali (Idn/tempo) secondo periodicità e criticità del sito;\n"
+        "• Conduttori e condutture: verifica integrità isolamento, fissaggi, protezioni meccaniche e segregazioni;\n"
+        "• Collegamenti equipotenziali e PE: controllo continuità e integrità;\n"
+        "• Comandi/emergenze (se presenti): prova funzionale e ripristino, verifica segnalazioni e cartellonistica;\n"
+        "• Apparecchiature specifiche (es. wallbox/utenze dedicate): ispezione cavi e connettori, prova funzionale e aggiornamenti firmware se previsti dal costruttore.\n\n"
+        "È raccomandata la tenuta di un registro manutenzione con data, attività eseguite, esito e nominativo dell’operatore."
+    )
+
+def _std_dati_tecnici_base(data: Dict[str, Any]) -> str:
+    sist = _first_non_empty([data.get("sistema_distribuzione"), "TT"])
+    tf = _first_non_empty([data.get("tensione_freq"), "230/400 V - 50 Hz"])
+    pot = data.get("potenza_disponibile")
+    pod = data.get("pod")
+    cont = data.get("contatore_ubicazione")
+    alim = data.get("alimentazione")
+    amb = data.get("ambienti") or []
+    amb_txt = ", ".join([a for a in amb if _meaningful(a)])
+    parts = []
+    parts.append(f"Tipo sistema di distribuzione: {sist}.")
+    parts.append(f"Tensione nominale: {tf}.")
+    if _meaningful(pot):
+        parts.append(f"Potenza disponibile/contrattuale: {pot}.")
+    if _meaningful(pod):
+        parts.append(f"POD: {pod}.")
+    if _meaningful(cont):
+        parts.append(f"Contatore ubicato in: {cont}.")
+    if _meaningful(alim):
+        parts.append(f"Alimentazione: {alim}.")
+    if _meaningful(amb_txt):
+        parts.append(f"Ambientazioni particolari (se presenti): {amb_txt}.")
+    return " ".join(parts)
+
+def _std_descrizione_impianto(data: Dict[str, Any]) -> str:
+    luogo = _first_non_empty([data.get("impianto_indirizzo"), data.get("luogo"), ""])
+    pod = data.get("pod")
+    cont = data.get("contatore_ubicazione")
+    sist = _first_non_empty([data.get("sistema_distribuzione"), "TT"])
+    tf = _first_non_empty([data.get("tensione_freq"), "230/400 V - 50 Hz"])
+    pot = data.get("potenza_disponibile")
+    s = []
+    if _meaningful(luogo):
+        s.append(f"Il sito di intervento è ubicato in {luogo}.")
+    if _meaningful(pod) or _meaningful(cont):
+        s.append("L’impianto è alimentato in bassa tensione dal punto di consegna del Distributore"
+                 + (f" (POD: {pod})" if _meaningful(pod) else "")
+                 + (f", tramite contatore/quadretto di misura ubicato in {cont}" if _meaningful(cont) else "")
+                 + ".")
+    s.append(f"Tipo sistema di distribuzione: {sist}. Tensione nominale: {tf}."
+             + (f" Potenza disponibile/contrattuale: {pot}." if _meaningful(pot) else ""))
+    s.append("La ripartizione e distribuzione interna avviene mediante linee in cavo conforme CEI/UNEL e componenti marcati CE "
+             "(e, ove disponibile, IMQ o equivalente). Le condutture sono posate in tubazioni/canalizzazioni idonee e con protezione meccanica adeguata; "
+             "i circuiti risultano identificati e separati per destinazione d’uso, privilegiando la manutenibilità.")
+    s.append("Le opere impiantistiche previste comprendono, in funzione dell’intervento, la realizzazione e/o modifica di linee di alimentazione dedicate, "
+             "installazione di punti di utilizzo, posa di tubazioni/canalizzazioni, installazione o adeguamento di quadri elettrici, apparecchi di protezione e comando, "
+             "morsetterie e accessori, nonché collegamenti al sistema di protezione (PE) e ai collegamenti equipotenziali.")
+    s.append("I conduttori sono identificati secondo codifica colori (PE giallo-verde, N blu, fasi marrone/nero/grigio) e marcatura/etichettatura dove previsto. "
+             "I dispositivi di protezione sono coordinati con le linee e con il sistema di distribuzione (TT/TN) in modo coerente con le norme tecniche applicabili.")
+    return " ".join(s)
+
+
+
 def _kv_table(rows: List[list], col_widths):
     tbl = Table(rows, colWidths=col_widths, hAlign="LEFT")
     tbl.setStyle(
@@ -93,24 +240,25 @@ def _first_nonempty_line(text: str) -> str:
 
 
 class _NumberedCanvas(canvas.Canvas):
-    """Canvas che consente 'Pagina X di Y'."""
+    """Canvas che consente 'Pagina X di Y' senza duplicare le pagine (replay a fine build)."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._saved_page_states: List[dict] = []
 
     def showPage(self):
+        # Salva lo stato della pagina corrente e avvia una nuova pagina
         self._saved_page_states.append(dict(self.__dict__))
-        super().showPage()
+        self._startPage()
 
     def save(self):
-        page_count = len(self._saved_page_states) + 1
+        # Replay delle pagine salvate con numerazione completa
+        page_count = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
             self._draw_page_number(page_count)
-            super().showPage()
-        self._draw_page_number(page_count)
-        super().save()
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
 
     def _draw_page_number(self, page_count: int):
         self.saveState()
@@ -528,10 +676,6 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
 
     story: List[Any] = []
 
-    stile_rel = str(data.get("stile_relazione","")).lower()
-    is_lean = "lean" in stile_rel
-
-
     # 1) COVER
     cover_style = (data.get('cover_style') or 'engineering').lower()
     story.append(EngineeringCoverPage(data) if cover_style.startswith('eng') else LegacyCoverPage(data))
@@ -583,61 +727,23 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
 
     # === CAPITOLI 1..6 ===
     story.append(_p("CAPITOLO 1 - PREMESSA", h2))
-    story.append(_p(data.get("premessa", ""), styles["BodyText"]))
+    story.append(_p(_std_premessa(data), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
     story.append(_p("CAPITOLO 2 - RIFERIMENTI LEGISLATIVI E NORMATIVI", h2))
-    story.append(_p(data.get("norme", ""), styles["BodyText"]))
+    story.append(_p(_std_norme(data), styles["BodyText"]))
+    story.append(Spacer(1, 10))
+    story.append(_p("CAPITOLO 3 - CRITERI DI PROGETTO DEGLI IMPIANTI", h2))
+    story.append(_p(_std_criteri_progetto(data), styles["BodyText"]))
     story.append(Spacer(1, 10))
 
-    criterio = data.get("criterio_progetto", "")
-    if is_lean and _meaningful(criterio):
-        # In modalità Lean manteniamo solo l'introduzione (prima di blocchi molto estesi)
-        criterio = criterio.split("\n\n")[0].strip()
-
-    # Dati raccolti in fase di progettazione (se presenti)
-    progettazione = data.get("progettazione", {}) or {}
-    proj_txt_parts = []
-    if _meaningful(progettazione.get("data_sopralluogo","")):
-        proj_txt_parts.append(f"Data sopralluogo: {progettazione.get('data_sopralluogo')}.")
-    if _meaningful(progettazione.get("referente","")):
-        proj_txt_parts.append(f"Referente in sito: {progettazione.get('referente')}.")
-    if _meaningful(progettazione.get("fornitura","")):
-        proj_txt_parts.append(f"Fornitura/POD/Distributore: {progettazione.get('fornitura')}.")
-    if _meaningful(progettazione.get("protezione_monte","")):
-        proj_txt_parts.append(f"Protezione a monte (se nota): {progettazione.get('protezione_monte')}.")
-    if _meaningful(progettazione.get("icc_presunta","")):
-        proj_txt_parts.append(f"Icc presunta (se disponibile): {progettazione.get('icc_presunta')}.")
-    if _meaningful(progettazione.get("ra_misurata","")):
-        proj_txt_parts.append(f"Ra misurata/stimata (se disponibile): {progettazione.get('ra_misurata')}.")
-    if _meaningful(progettazione.get("doc_disponibili","")):
-        proj_txt_parts.append(f"Documentazione disponibile: {progettazione.get('doc_disponibili')}.")
-    if _meaningful(progettazione.get("vincoli","")):
-        proj_txt_parts.append(f"Vincoli/Note di rilievo: {progettazione.get('vincoli')}.")
-
-    if proj_txt_parts:
-        story.append(_p("2.1 Dati raccolti in fase di progettazione (rilievo e ipotesi)", h3))
-        story.append(_p(" ".join(proj_txt_parts), styles["BodyText"]))
-        story.append(Spacer(1, 10))
-
-    if _meaningful(criterio):
-        story.append(_p("CAPITOLO 3 - CRITERI DI PROGETTO DEGLI IMPIANTI", h2))
-        story.append(_p(criterio, styles["BodyText"]))
-        story.append(Spacer(1, 10))
-
     story.append(_p("CAPITOLO 4 - SOLUZIONE PROGETTUALE ADOTTATA", h2))
-
-    dati_tecnici = data.get("dati_tecnici", "")
-    if _meaningful(dati_tecnici):
-        story.append(_p("4.1 Dati tecnici di base", h3))
-        story.append(_p(dati_tecnici, styles["BodyText"]))
-        story.append(Spacer(1, 8))
-
-    descr = data.get("descrizione_impianto", "")
-    if _meaningful(descr):
-        story.append(_p("4.2 Descrizione impianto e opere", h3))
-        story.append(_p(descr, styles["BodyText"]))
-        story.append(Spacer(1, 8))
+    story.append(_p("4.1 Dati tecnici di base", h3))
+    story.append(_p(_std_dati_tecnici_base(data), styles["BodyText"]))
+    story.append(Spacer(1, 8))
+    story.append(_p("4.2 Descrizione impianto e opere", h3))
+    story.append(_p(_std_descrizione_impianto(data), styles["BodyText"]))
+    story.append(Spacer(1, 8))
 
     conf = data.get("confini", "")
     if _meaningful(conf):
@@ -652,8 +758,8 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
             _p("Quadro", th),
             _p("Ubicazione", th),
             _p("IP", th),
-            _p("Interruttore generale<br/>(tipo/In)", th),
-            _p("Differenziale generale<br/>(tipo/Idn)", th),
+            _p("Interruttore generale (tipo/In)", th),
+            _p("Differenziale generale (tipo/Idn)", th),
         ]]
         for q in quadri:
             tdata.append([
@@ -680,7 +786,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     if linee:
         story.append(_p("4.5 Elenco circuiti, cavi e protezioni (sintesi)", h3))
         tdata = [[
-            _p("Circuito<br/>/Linea", th),
+            _p("Circuito/Linea", th),
             _p("Destinazione<br/>/Utilizzo", th),
             _p("Posa<br/>L (m)", th),
             _p("Cavo<br/>(tipo/sezione)", th),
@@ -717,124 +823,58 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         story.append(tbl)
         story.append(Spacer(1, 10))
 
-    
-    # Sezione EVSE (wallbox/colonnine) - se presente
-    evse = data.get("evse", []) or []
-    if evse:
-        story.append(_p("4.6 Infrastruttura di ricarica EV (sintesi)", h3))
-        story.append(_p("La stazione di ricarica è selezionata e installata in conformità alle norme applicabili (in particolare CEI 64-8 Sezione 722 e CEI EN 61851-1) e alle istruzioni del costruttore, con particolare attenzione al coordinamento delle protezioni e dei dispositivi differenziali/RDC-DD.", styles["BodyText"]))
-        tdata = [[
-            _p("Tipo", th),
-            _p("Marca/Modello", th),
-            _p("P (kW)", th),
-            _p("Alim.", th),
-            _p("Modo", th),
-            _p("Connettore", th),
-            _p("IP/IK", th),
-            _p("RCD/RDC", th),
-            _p("Note", th),
-        ]]
-        for e in evse:
-            tdata.append([
-                _p(str(e.get("Apparecchiatura","")), tc),
-                _p(str(e.get("Marca/Modello","")), tc),
-                _p(str(e.get("Potenza_kW","")), tc),
-                _p(str(e.get("Alimentazione","")), tc),
-                _p(str(e.get("Modo ricarica","")), tc),
-                _p(str(e.get("Connettore","")), tc),
-                _p(f"{e.get('IP','')}/{e.get('IK','')}".strip("/"), tc),
-                _p(str(e.get("RCD richiesto","")), tc),
-                _p(str(e.get("Note","")), tc),
-            ])
-        colw = [18*mm, 34*mm, 12*mm, 14*mm, 10*mm, 16*mm, 14*mm, 44*mm, 40*mm]
-        tbl = Table(tdata, colWidths=colw, repeatRows=1, hAlign="LEFT")
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 3),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ]))
-        story.append(tbl)
-        story.append(Spacer(1, 10))
-
     story.append(_p("CAPITOLO 5 - ULTERIORI INDICAZIONI", h2))
 
     sic = data.get("sicurezza", "")
-    if is_lean and _meaningful(sic):
-        sic = sic.split("\n\n")[0].strip()
     if _meaningful(sic):
         story.append(_p("5.1 Protezione contro i contatti diretti e indiretti", h3))
         story.append(_p(sic, styles["BodyText"]))
         story.append(Spacer(1, 8))
-
-    ver = data.get("verifiche", "")
-    if _meaningful(ver):
-        story.append(_p("5.2 Verifiche, prove e collaudi", h3))
-        story.append(_p(ver, styles["BodyText"]))
-        story.append(Spacer(1, 8))
-
-    manut = data.get("manutenzione", "")
-    if is_lean and _meaningful(manut):
-        manut = manut.split("\n\n")[0].strip()
-    if _meaningful(manut):
-        story.append(_p("5.3 Esercizio, manutenzione e avvertenze", h3))
-        story.append(_p(manut, styles["BodyText"]))
-        story.append(Spacer(1, 8))
-
-    allg = data.get("allegati", "")
-    if _meaningful(allg):
-        story.append(_p("CAPITOLO 6 - ALLEGATI", h2))
-
-    # Checklist documentale (se presente)
-    checklist = data.get("checklist_documentale", []) or data.get("checklist", []) or []
-    if checklist:
-        story.append(_p("6.1 Checklist documentale", h3))
-        tdata = [[_p("Documento/Elaborato", th), _p("Stato", th), _p("Note", th)]]
-        for r in checklist:
+    story.append(_p("5.2 Verifiche, prove e collaudi", h3))
+    story.append(_p("Ad ultimazione dei lavori, l’impianto è sottoposto alle verifiche previste dalla CEI 64-8 (Parte 6) e dalla CEI 64-14, con esecuzione e registrazione delle prove strumentali pertinenti al sistema di distribuzione (TT/TN) e alla tipologia di impianto.", styles["BodyText"]))
+    vt = data.get("verifiche_tabella") or []
+    vt_rows = []
+    if isinstance(vt, list):
+        for r in vt:
             if not isinstance(r, dict):
                 continue
-            stato = str(r.get("Stato","")).strip()
-            if not _meaningful(stato):
+            prova = str(r.get("Prova", "")).strip()
+            esito = str(r.get("Esito", "")).strip()
+            strum = str(r.get("Strumento", "")).strip()
+            note = str(r.get("Note", "")).strip()
+            if _meaningful(esito) or _meaningful(strum) or _meaningful(note):
+                vt_rows.append([prova, esito, strum, note])
+    if vt_rows:
+        story.append(Spacer(1, 6))
+        story.append(_kv_table([["Prova", "Esito", "Strumento", "Note"]] + vt_rows, [70*mm, 30*mm, 40*mm, 40*mm]))
+    story.append(Spacer(1, 8))
+    story.append(_p("5.3 Esercizio, manutenzione e avvertenze", h3))
+    story.append(_p(_std_manutenzione(), styles["BodyText"]))
+    story.append(Spacer(1, 8))
+    # CAPITOLO 6 - ALLEGATI (sezione sempre in fondo; stampa solo contenuti presenti)
+    story.append(_p("CAPITOLO 6 - ALLEGATI", h2))
+    # 6.1 Checklist documentale
+    ck = data.get("checklist") or data.get("checklist_documentale") or []
+    ck_rows = []
+    if isinstance(ck, list):
+        for r in ck:
+            if not isinstance(r, dict):
                 continue
-            tdata.append([
-                _p(str(r.get("Documento/Elaborato","")), tc),
-                _p(stato, tc),
-                _p(str(r.get("Note","")), tc),
-            ])
-        tbl = Table(tdata, colWidths=[110*mm, 25*mm, 55*mm], repeatRows=1, hAlign="LEFT")
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-            ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 3),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-            ("TOPPADDING", (0, 0), (-1, -1), 2),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ]))
-        story.append(tbl)
-        story.append(Spacer(1, 10))
-
-    # Foto (se presenti)
-    foto = data.get("foto", []) or []
-    if foto:
-        story.append(_p("6.2 Documentazione fotografica", h3))
-        from reportlab.platypus import Image
-        for f in foto[:6]:
-            try:
-                img = Image(BytesIO(f.get("bytes", b"")))
-                img.drawHeight = 70*mm
-                img.drawWidth = 120*mm
-                story.append(_p(str(f.get("name","")), styles["Italic"]))
-                story.append(img)
-                story.append(Spacer(1, 8))
-            except Exception:
-                continue
-        story.append(Spacer(1, 10))
-
-        story.append(_p(allg, styles["BodyText"]))
+            docu = str(r.get("Documento/Elaborato", r.get("Documento", ""))).strip()
+            stato = str(r.get("Stato", "")).strip()
+            note = str(r.get("Note", "")).strip()
+            if _meaningful(stato):
+                ck_rows.append([docu, stato, note])
+    if ck_rows:
+        story.append(_p("6.1 Checklist documentale", h3))
+        story.append(_kv_table([["Documento/Elaborato","Stato","Note"]] + ck_rows, [90*mm, 30*mm, 50*mm]))
+        story.append(Spacer(1, 8))
+    # 6.2 Documentazione fotografica essenziale
+    fotos = data.get("foto") or []
+    if isinstance(fotos, list) and len(fotos) > 0:
+        story.append(_p("6.2 Documentazione fotografica essenziale", h3))
+        story.append(_foto_gallery(fotos, styles))
+        story.append(Spacer(1, 8))
 
     # Firma finale (facoltativa)
     luogo_f = data.get("luogo_firma", "")
