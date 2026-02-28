@@ -576,7 +576,7 @@ Per quanto riguarda i conduttori di fase dovranno essere contraddistinti in modo
 I conduttori sono identificati secondo CEI-UNEL 00722 e 00712:
 • PE: giallo/verde; • Neutro: blu; • Fasi: marrone/grigio/nero.
 
-3.4.4 CONDUTTURE.
+3.4.4 Condutture
 
 Quanto segue è valido solo nel caso in cui il POD, e quindi il contatore fiscale ed il DG non sia all’interno di EVC, come nel caso oggetto della presente relazione tecnica.
 Le condutture dovranno essere realizzate in modo da ridurre al minimo la probabilità di innesco e propagazione dell’incendio nelle condizioni di posa. Per soddisfare questi requisiti le condutture dovranno rispondere alle prescrizioni della Sezione 751 della Norma CEI 64-8/7.
@@ -585,7 +585,7 @@ I conduttori dovranno essere sempre protetti meccanicamente. Dette protezioni sa
 I tubi protettivi, le cassette e le scatole per l'impianto di energia, per trasmissione dati, di allarme, di controllo e di segnalazione, dovranno essere dedicate e distinte fra loro (CEI 64-8/5 art. 528.1.1).
 Le condutture elettriche dovranno essere opportunamente distanziate da tubazioni che producano calore, fumi o vapori. Se ciò non fosse possibile si dovranno utilizzare opportuni accorgimenti onde evitare eventuali effetti dannosi.
 
-3.4.5 TUBI E GUAINE.
+3.4.5 Tubi e Guaine
 
 In considerazione delle diverse tipologie impiantistiche si potranno utilizzare, oltre a quelli già esistenti, i tubi e le guaine di seguito descritte:
 •	tubo rigido autoestinguente in PVC serie pesante conforme alla Norma CEI 23-8 e varianti ed alle relative tabelle UNEL 37118-37119-37120 e s.m.i.;
