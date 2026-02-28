@@ -97,6 +97,18 @@ with tab_impianto:
     st.subheader("Confini dell'intervento (opzionale, consigliato)")
     confini = st.text_area("Descrivi cosa è compreso/escluso e le interfacce con parti preesistenti/terze", value="", height=90)
 
+
+    st.subheader("Dati di fornitura e parametri di progetto")
+    cA, cB, cC, cD = st.columns(4)
+    with cA:
+        potenza_impegnata_kw = st.number_input("Potenza impegnata (kW)", min_value=0.0, value=0.0, step=0.5)
+    with cB:
+        distanza_pod_m = st.number_input("Distanza punto di origine / POD (m)", min_value=0.0, value=0.0, step=1.0)
+    with cC:
+        icc_trifase_ka = st.number_input("Icc presunta trifase al POD (kA)", min_value=0.0, value=0.0, step=0.5)
+    with cD:
+        icc_mono_ka = st.number_input("Icc presunta monofase al POD (kA)", min_value=0.0, value=0.0, step=0.5)
+
     st.subheader("Quadri elettrici (sintesi)")
     quadri_df = pd.DataFrame([
         {"Quadro": "QG", "Ubicazione": "", "IP": "", "Interruttore generale (tipo/In)": "", "Differenziale generale (tipo/Idn)": ""}
@@ -204,6 +216,12 @@ if st.button("Genera PDF", type="primary"):
         "luogo": _s(luogo),
         "impianto_indirizzo": _s(impianto_indirizzo),
         "oggetto_intervento": _s(oggetto_intervento),
+
+        "potenza_impegnata_kw": float(potenza_impegnata_kw) if potenza_impegnata_kw else "",
+        "distanza_pod_m": float(distanza_pod_m) if distanza_pod_m else "",
+        "icc_trifase_ka": float(icc_trifase_ka) if icc_trifase_ka else "",
+        "icc_mono_ka": float(icc_mono_ka) if icc_mono_ka else "",
+
         "tipologia_impianto": tipologia_altro if tipologia_impianto == "Altro" else tipologia_impianto,
         "sistema_distribuzione": sistema_altro if sistema == "Altro" else sistema,
         "tensione_freq": _s(tensione_freq),

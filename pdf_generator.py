@@ -665,6 +665,248 @@ def _revision_table(data: Dict[str, Any], styles) -> Optional[Table]:
     return tbl
 
 
+
+
+def _add_progetto_elettrico_relazione_tecnica(story, data, styles, h2, h3, body):
+    """Integra nel corpo del report i paragrafi 9..58 del template (stile relazione tecnica)."""
+
+    def fmt_sentence(tpl: str, **kw) -> str:
+        # If any placeholder value is missing/empty -> omit the whole sentence.
+        for v in kw.values():
+            if v is None:
+                return ""
+            if isinstance(v, str) and not v.strip():
+                return ""
+        return tpl.format(**kw).strip()
+
+    def add_par(num: int, title: str, text: str):
+        title_line = f"{num}  {title}" if num else title
+        story.append(_p(title_line.upper(), h3))
+        if _meaningful(text):
+            for para in _split_paragraphs(text):
+                if _meaningful(para):
+                    story.append(_p(para, body))
+        story.append(Spacer(1, 8))
+
+    # Header section
+    story.append(_p("PROGETTO ELETTRICO – RELAZIONE TECNICA", h2))
+    story.append(Spacer(1, 6))
+
+    # Pull common dynamic values (optional)
+    distanza_m = data.get("distanza_pod_m") or data.get("distanza_m") or ""
+    potenza_kw = data.get("potenza_impegnata_kw") or data.get("potenza_kw") or ""
+    icc_trifase_ka = data.get("icc_trifase_ka") or ""
+    icc_mono_ka = data.get("icc_mono_ka") or ""
+
+    # 9..58 (contenuti base dal template, con innesti dinamici se disponibili)
+    add_par(9, "Area di intervento e tipo di attività.",
+        "L’area di intervento consiste nell’installazione di tipo Outdoor (esterno) di punto di ricarica.")
+
+    add_par(10, "Tipo di impianto.",
+        "Trattasi di impianto elettrico, utilizzatore di Ia categoria (50 V < Vn < 1000 V), con alimentazione da rete privata di bassa tensione tramite un unico punto di consegna (POD) dell’Ente Distributore.")
+
+    p11 = []
+    s = fmt_sentence("Il punto di origine dell’impianto dista circa {distanza_m} metri dal punto di consegna da parte dell’Ente Distributore.", distanza_m=distanza_m)
+    if s:
+        p11.append(s)
+    p11.append("Per maggiori dettagli si rimanda ai disegni e agli elaborati tecnici allegati a questa relazione.")
+    add_par(11, "Punto di origine.", "\n\n".join(p11))
+
+    add_par(12, "Sistema di fornitura.",
+        "La fornitura sarà di tipo a corrente alternata monofase in bassa tensione 230 V, a frequenza nominale 50 Hz.")
+
+    add_par(13, "Tensione nominale.",
+        "Gli impianti elettrici presenti avranno le seguenti tensioni:\n\n• Circuiti elettrici di tipo monofase a 230 V;")
+
+    add_par(14, "Sistema di distribuzione.",
+        "Si tratta di un impianto di tipo TT, con impianto di terra comune a tutte le sezioni dell’impianto.")
+
+    p15 = []
+    s15 = fmt_sentence("Per la fornitura delle parti comuni, la corrente di corto circuito presunta per guasto trifase nel punto di fornitura è pari a {icc_trifase_ka} kA (salvo diversa indicazione del Distributore), mentre per guasto monofase è pari a {icc_mono_ka} kA.",
+                       icc_trifase_ka=icc_trifase_ka, icc_mono_ka=icc_mono_ka)
+    if s15:
+        p15.append(s15)
+    p15.append("In ogni caso il dispositivo generale avrà un potere d’interruzione nominale monofase 230 V maggiore della corrente di corto circuito monofase presunta nel punto di installazione.")
+    add_par(15, "Corrente di corto circuito.", "\n\n".join(p15))
+
+    p16 = []
+    s16 = fmt_sentence("La potenza impegnata tiene conto dei fattori di contemporaneità e di utilizzazione delle utenze presenti ed è pari a quella contrattualmente richiesta all’Ente Fornitore: {potenza_kw} kW.", potenza_kw=potenza_kw)
+    if s16:
+        p16.append(s16)
+    if not p16:
+        p16.append("La potenza impegnata tiene conto dei fattori di contemporaneità e di utilizzazione delle utenze presenti ed è pari a quella contrattualmente richiesta all’Ente Fornitore.")
+    add_par(16, "Potenza impegnata.", "\n\n".join(p16))
+
+    add_par(17, "Caduta di tensione.",
+        "Per gli impianti di 1ª categoria la tensione misurata tra il quadro principale immediatamente a valle del punto di consegna e un qualsiasi punto dell’impianto utilizzatore, quando sono inseriti e funzionanti al rispettivo carico nominale, non deve superare il 4% (a fondo linea).")
+
+    add_par(18, "Correnti di impiego e portate dei cavi.",
+        "Ai fini della determinazione delle correnti d’impiego, le linee asservite alle utenze sono dimensionate per il massimo carico previsto. La portata delle condutture è ricavata dalle tabelle CEI-UNEL vigenti ed applicando i coefficienti di riduzione relativi alle condizioni di posa ed alle temperature ambiente.")
+
+    # 19..23 (sezioni / colori)
+    add_par(19, "Sezione minima dei conduttori di fase.",
+        "Le sezioni dovranno essere tali da soddisfare le prescrizioni delle norme CEI e delle disposizioni di legge vigenti in materia antinfortunistica.")
+
+    add_par(20, "Sezione minima dei conduttori di neutro.",
+        "Per i conduttori di neutro la sezione dovrà essere la stessa del conduttore di fase nei circuiti monofase a due fili e polifase quando la sezione del conduttore di fase sia inferiore o uguale a 16 mm² se in rame e 25 mm² se in alluminio.")
+
+    add_par(21, "Sezione minima dei conduttori di protezione (PE).",
+        "Si dovranno rispettare le sezioni precisate dalla tabella 54F della norma CEI 64-8 (art. 543.1.2).")
+
+    add_par(22, "Sezione minima del conduttore di terra.",
+        "Con riferimento all’art. 542.3 ed alla tabella 54A della norma CEI 64-8, le sezioni minime dei conduttori di terra dipendono dalla protezione meccanica e dalla protezione contro la corrosione.")
+
+    add_par(23, "Colori di identificazione.",
+        "In accordo con art. 514.31 della CEI 64-8/5 e della CEI 16-4 i colori da utilizzare per l'identificazione dei vari conduttori sono: fase (marrone/grigio/nero), neutro (blu chiaro), protezione (giallo-verde).")
+
+    # 24..35 (sezionamento/protezioni)
+    add_par(24, "Sezionamento e comando.",
+        "Di seguito si riportano le caratteristiche delle apparecchiature per il comando ed il sezionamento dei circuiti elettrici.")
+
+    add_par(25, "Sezionamento.",
+        "Ogni circuito dovrà poter essere sezionato dall’alimentazione su tutti i conduttori attivi.")
+
+    add_par(26, "Interruzione per manutenzione non elettrica.",
+        "Quando la manutenzione non elettrica può comportare rischi per le persone, si dovranno provvedere dispositivi di interruzione dell’alimentazione e idonei accorgimenti contro la riattivazione accidentale.")
+
+    add_par(27, "Comando funzionale.",
+        "Gli apparecchi di comando funzionale non dovranno necessariamente interrompere tutti i conduttori attivi di un circuito. Un dispositivo di comando unipolare non dovrà essere inserito sul conduttore di neutro.")
+
+    add_par(28, "Protezione contro i contatti diretti.",
+        "Le parti attive dovranno essere segregate mediante posa entro involucri o dietro barriere, assicurando almeno un grado di protezione IPXXB, come da CEI 64-8 (art. 412).")
+
+    add_par(29, "Protezione contro i contatti indiretti – sistema TT.",
+        "Per la protezione dai contatti indiretti dovrà essere garantito il coordinamento dell’impianto di terra con i dispositivi di protezione in modo da assicurare l'interruzione automatica dell'alimentazione nei tempi richiesti (CEI 64-8).")
+
+    add_par(30, "Protezione da parti in tensione poste all’interno dell’involucro.",
+        "Le parti attive poste entro involucri o barriere devono assicurare almeno il grado di protezione IPXXB (IP20).")
+
+    add_par(31, "Componenti elettrici in classe II o con isolamento equivalente.",
+        "La protezione da contatti indiretti può essere realizzata anche con l'utilizzo di componenti in classe II, secondo le prescrizioni normative applicabili.")
+
+    add_par(32, "Protezione delle condutture contro le sovracorrenti.",
+        "Di seguito si riportano le prescrizioni relativamente alle protezioni delle condutture.")
+
+    add_par(33, "Protezione contro i sovraccarichi.",
+        "Per proteggere le linee contro i sovraccarichi saranno soddisfatte le condizioni Ib ≤ In ≤ Iz e If ≤ 1,45 Iz (CEI 64-8).")
+
+    add_par(34, "Protezione contro i corto circuiti.",
+        "Per la protezione da corto circuito, affinché la temperatura dei conduttori non superi il valore massimo ammissibile, si dovrà tener conto della relazione (I²·t) ≤ K²·S².")
+
+    add_par(35, "Selettività.",
+        "Gli impianti saranno realizzati in modo tale da assicurare la massima selettività possibile, onde evitare che in caso di guasto a valle intervengano anche le protezioni generali a monte.")
+
+    add_par(36, "Schemi e documentazione.",
+        "Saranno forniti al manutentore i documenti di disposizione topografica dell’impianto, unitamente a rapporti di verifica, disegni, schemi e relative modifiche, così come istruzioni per l’esercizio e la manutenzione.")
+
+    add_par(37, "Descrizione degli impianti.",
+        "Relativamente a quanto descritto in questo capitolo, per maggiori dettagli si rimanda alla documentazione allegata.")
+
+    # 38..40: integrate existing tables if present
+    story.append(_p("38  QUADRI ELETTRICI.", h3))
+    story.append(_p("Tutti i quadri e i dispositivi di protezione scelti dovranno essere di primaria marca e rispondere alle norme applicabili.", body))
+    story.append(Spacer(1, 6))
+    quadri = data.get("quadri", [])
+    if quadri:
+        story.append(_p("Sintesi quadri (da calcolo/progetto)", styles["Italic"]))
+        tdata = [[_p("Quadro", styles["TableHeader"]), _p("Ubicazione", styles["TableHeader"]), _p("IP", styles["TableHeader"]),
+                  _p("Interruttore generale", styles["TableHeader"]), _p("Differenziale generale", styles["TableHeader"]) ]]
+        for q in quadri:
+            tdata.append([_p(str(q.get("Quadro","")), styles["TableCell"]),
+                          _p(str(q.get("Ubicazione","")), styles["TableCell"]),
+                          _p(str(q.get("IP","")), styles["TableCell"]),
+                          _p(str(q.get("Generale","")), styles["TableCell"]),
+                          _p(str(q.get("Diff","")), styles["TableCell"])])
+        tbl = Table(tdata, colWidths=[18*mm, 48*mm, 12*mm, 54*mm, 54*mm], repeatRows=1, hAlign="LEFT")
+        tbl.setStyle(_table_style())
+        story.append(tbl)
+    story.append(Spacer(1, 8))
+
+    add_par(39, "Distribuzione principale.",
+        "Le condutture della distribuzione saranno unicamente cavi unipolari tipo FG16R16/FG16M16 per sezioni superiori a 25 mm²; per sezioni inferiori è ammesso l’uso di cavi multipolari del tipo FG16(O)R16 o FRG17.")
+
+    # Colonnina / EVSE details
+    story.append(_p("40  COLONNINA.", h3))
+    story.append(_p("La stazione di ricarica è classificabile come “Alimentazione di veicoli elettrici” (CEI 64-8 Sez. 722).", body))
+    evse = data.get("evse", []) or data.get("evse_tabella", [])
+    if evse:
+        story.append(Spacer(1, 6))
+        story.append(_p("Dati stazione di ricarica (EVSE)", styles["Italic"]))
+        tdata = [[_p("Marca/Modello", styles["TableHeader"]), _p("Potenza", styles["TableHeader"]), _p("Connettore", styles["TableHeader"]),
+                  _p("Modo", styles["TableHeader"]), _p("Note", styles["TableHeader"]) ]]
+        for r in evse:
+            if not isinstance(r, dict):
+                continue
+            if not _meaningful(str(r.get("MarcaModello","")) + str(r.get("Potenza",""))):
+                continue
+            tdata.append([
+                _p(str(r.get("MarcaModello","")), styles["TableCell"]),
+                _p(str(r.get("Potenza","")), styles["TableCell"]),
+                _p(str(r.get("Connettore","")), styles["TableCell"]),
+                _p(str(r.get("Modo","")), styles["TableCell"]),
+                _p(str(r.get("Note","")), styles["TableCell"]),
+            ])
+        if len(tdata) > 1:
+            tbl = Table(tdata, colWidths=[58*mm, 20*mm, 24*mm, 14*mm, 64*mm], repeatRows=1, hAlign="LEFT")
+            tbl.setStyle(_table_style())
+            story.append(tbl)
+    story.append(Spacer(1, 8))
+
+    # 41..58
+    add_par(41, "Verifiche.", "Per la valutazione delle verifiche da eseguire si rimanda alle prescrizioni della CEI 64-8 Cap. 61 e s.m.i.")
+
+    add_par(42, "Apparecchiature modulari.",
+        "Le apparecchiature installate nei quadri dovranno essere del tipo modulare e componibile con fissaggio su profilato normalizzato EN 50022, salvo eccezioni progettuali.")
+
+    add_par(43, "Interruttore generale.",
+        "Ogni quadro sarà dotato di un interruttore generale provvisto di comando manuale che consenta di interrompere simultaneamente tutti i conduttori attivi.")
+
+    add_par(44, "Interruttori magnetotermici modulari.",
+        "Gli interruttori automatici magnetotermici dovranno avere potere di interruzione adeguato alla corrente di corto circuito calcolata nel punto di installazione.")
+
+    add_par(45, "Interruttori differenziali modulari.",
+        "I dispositivi differenziali dovranno essere idonei al funzionamento in presenza di correnti alternate sinusoidali e immuni a scatti intempestivi dovuti a sovratensioni impulsive, secondo le specifiche di progetto.")
+
+    add_par(46, "Contattori di potenza e ausiliari.",
+        "Se necessari si farà uso di contattori accessoriabili rispondenti alle normative EN 60947-1 e 60947-4-1.")
+
+    add_par(47, "Accessori.",
+        "Qualora previsti, gli accessori (contatti ausiliari, interblocchi, temporizzatori, ecc.) dovranno essere scelti in coerenza con le esigenze di servizio e sicurezza.")
+
+    add_par(48, "Cavi.",
+        "I cavi impiegati risponderanno all'unificazione UNEL ed alle Norme costruttive stabilite dal Comitato Elettrotecnico Italiano; saranno del tipo non propagante l’incendio e a bassa emissione di fumi e gas corrosivi.")
+
+    add_par(49, "Colori dei cavi.",
+        "I conduttori dovranno essere contraddistinti dalla colorazione prevista dalle tabelle CEI-UNEL vigenti; il giallo-verde è riservato ai conduttori di protezione, il blu chiaro al neutro.")
+
+    add_par(50, "Cavi per la distribuzione dell’energia.",
+        "In accordo con la Tabella 52A della Norma CEI 64-8, si potranno utilizzare, ad esempio, H07V-K/FS17/FG17 (450/750 V) e FG16OR16/FG16R16 (0,6/1 kV) in funzione delle condizioni di posa.")
+
+    add_par(51, "Condutture.",
+        "Le condutture dovranno essere realizzate in modo da ridurre la probabilità di innesco e propagazione dell’incendio nelle condizioni di posa, secondo la Sezione 751 della Norma CEI 64-8.")
+
+    add_par(52, "Tubi e guaine.",
+        "Si potranno utilizzare tubi rigidi o flessibili autoestinguenti in PVC serie pesante conformi alle Norme CEI applicabili, completi di accessori di giunzione e derivazione.")
+
+    add_par(53, "Tipi di posa.",
+        "I tipi di posa delle condutture dovranno essere coerenti con le tabelle 52A/52B della CEI 64-8 e con i vincoli del sito.")
+
+    add_par(54, "Impianto trasmissione dati.",
+        "Qualora previsto, la rete dati si svilupperà in canalizzazioni dedicate, separata dagli impianti di energia, con cavi conformi alle specifiche del costruttore.")
+
+    add_par(55, "Verifiche.",
+        "Ad impianto ultimato si dovrà provvedere alle verifiche di collaudo: rispondenza alle disposizioni di legge, prescrizioni di progetto e norme CEI relative al tipo di impianto.")
+
+    add_par(56, "Verifiche iniziali.",
+        "Durante la realizzazione e prima della messa in servizio, l’impianto dovrà essere esaminato a vista e provato per verificare che le prescrizioni richiamate dalle norme applicabili siano state rispettate.")
+
+    add_par(57, "Esame a vista.",
+        "L’esame a vista accerta i difetti evidenti (involucri rotti, connessioni interrotte, mancanza di ancoraggi, ecc.) e, se necessario, approfondisce l’ispezione dei componenti elettrici.")
+
+    add_par(58, "Prove.",
+        "Le prove consistono nell’effettuazione di misure e operazioni con strumenti appropriati per accertare l’accordo con le Norme CEI (continuità PE/equipotenziali, funzionamento differenziali, resistenza di terra, impedenza anello di guasto, isolamento, ecc.).")
+
+
 def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
     buf = BytesIO()
     styles = getSampleStyleSheet()
@@ -834,6 +1076,10 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
         ]))
         story.append(tbl)
         story.append(Spacer(1, 10))
+
+
+    # Sezione integrata dal template: PROGETTO ELETTRICO – RELAZIONE TECNICA (paragrafi 9..58)
+    _add_progetto_elettrico_relazione_tecnica(story, data, styles, h2, h3, styles["BodyText"]) 
 
     story.append(_p("CAPITOLO 5 - ULTERIORI INDICAZIONI", h2))
 
