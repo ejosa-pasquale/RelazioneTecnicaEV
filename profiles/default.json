@@ -1,0 +1,18 @@
+{
+  "luogo": "Busnago",
+  "committente_nome": "Nome",
+  "sito_indirizzo": "via della SS. Annunziata 32/A",
+  "sito_cap_citta": "55100 Lucca",
+  "richiedente_nome": "Telebit Spa",
+  "richiedente_indirizzo": "Via S. Rocco, 65",
+  "richiedente_cap_citta": "20874 Busnago",
+  "oggetto": "nuovo impianto di ricarica per veicolo elettrico",
+  "distanza_m": 60,
+  "potenza_impegnata_kw": 4.0,
+  "potenza_wallbox_kw": 7.4,
+  "cavo_lunghezza_m": 60,
+  "cavo_tipo": "FG16OM16 3G6 0.6/1kV",
+  "modello_wallbox": "Cupra Charger Connect monofase",
+  "ik_trifase_ka": 10.0,
+  "ik_monofase_ka": 6.0
+}

@@ -42,3 +42,19 @@ Apri il browser sull'URL mostrato da Streamlit.
 └── templates
     └── relazione_base.docx
 ```
+
+## Foto e diagramma nel DOCX
+
+Per inserire automaticamente immagini nel documento, apri il template Word (`templates/relazione_base.docx`)
+e aggiungi i seguenti **placeholder** nel punto in cui vuoi che compaiano:
+
+- `{{FOTO_GALLERY}}` → inserisce una griglia di foto (2 colonne) con didascalie
+- `{{DIAGRAMMA_IMPIANTO}}` → inserisce il diagramma dell’impianto (immagine singola)
+
+Poi, dall’app:
+- Tab **Foto di cantiere**: carica immagini + didascalie
+- Tab **Diagramma impianto**: carica un’immagine oppure disegna al volo
+
+## Profili progetto (dati che non cambiano)
+
+Nella sidebar puoi salvare e richiamare un profilo JSON (cartella `profiles/`) per tenere precompilati i dati fissi.
