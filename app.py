@@ -1,4 +1,7 @@
 import streamlit as st
+import os, json
+_TEMPLATE_JSON_PATH = os.path.join(os.path.dirname(__file__), "template_sections.json")
+
 
 # --- Template contenuti (derivato dal DOCX campione) ---
 TEMPLATE_SECTIONS_DEFAULT = [{'default': 'L’area di intervento consiste nell’installazione di tipo Outdoor (esterno) di punto di ricarica.',
@@ -782,6 +785,17 @@ TEMPLATE_SECTIONS_DEFAULT = [{'default': 'L’area di intervento consiste nell�
   'title': 'PROVE.'}]
 
 # Sezioni minime consigliate (modello lean): mantiene il senso tecnico senza appesantire
+# Carica template completo da template_sections.json (se presente)
+try:
+    if os.path.exists(_TEMPLATE_JSON_PATH):
+        with open(_TEMPLATE_JSON_PATH, 'r', encoding='utf-8') as _f:
+            _tpl = json.load(_f)
+        if isinstance(_tpl, list) and len(_tpl) >= 40:
+            TEMPLATE_SECTIONS_DEFAULT = _tpl
+except Exception:
+    pass
+
+
 LEAN_SECTION_NUMS = {9,10,11,12,13,14,15,16,17,18,21,22,23,28,29,32,33,34,35,36,38,39,40,41,48,50,54,55,56,57,58}
 
 import pandas as pd
@@ -1483,6 +1497,42 @@ allegati = """Completano la presente relazione e/o la DiCo i seguenti allegati.
 - Report fotografico essenziale (quadri, targhette, collegamenti di terra, punti significativi): Consigliato.
 """
 
+
+
+st.markdown("### Struttura relazione (template integrato)")
+stile_relazione = st.radio(
+    "Seleziona lo stile del documento",
+    ["Lean (essenziale)", "Completo (come template)"],
+    index=1,
+    help="Lean: include solo i paragrafi che servono quasi sempre. Completo: replica la struttura del template con tutti i paragrafi."
+)
+edit_avanzata = st.checkbox(
+    "Modifica testi dei paragrafi (avanzato)",
+    value=False,
+    help="Se disattivato, il documento usa il testo standard del template (coerente e pronto)."
+)
+
+include_nums = set(LEAN_SECTION_NUMS) if stile_relazione.startswith("Lean") else {s["num"] for s in TEMPLATE_SECTIONS_DEFAULT}
+
+template_sections = []
+for sec in TEMPLATE_SECTIONS_DEFAULT:
+    num = sec["num"]
+    title = sec["title"]
+    default_text = sec.get("default", "")
+    include = (num in include_nums)
+
+    text_val = default_text
+    if edit_avanzata:
+        with st.expander(f"{num}  {title}", expanded=False):
+            include = st.checkbox("Includi questo paragrafo", value=include, key=f"tpl_inc_{num}")
+            text_val = st.text_area("Testo", value=default_text, height=180, key=f"tpl_txt_{num}")
+
+    template_sections.append({
+        "num": num,
+        "title": title,
+        "text": text_val,
+        "include": include,
+    })
 if st.button("Genera PDF"):
     quadri_list = []
     for _, q in quadri_df.iterrows():
@@ -1626,33 +1676,7 @@ Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cabla
             index=1,
             help="Lean: include solo i paragrafi che servono quasi sempre. Completo: replica la struttura del template con tutti i paragrafi."
         )
-        edit_avanzata = st.checkbox(
-            "Modifica testi dei paragrafi (avanzato)",
-            value=False,
-            help="Se disattivato, il documento usa il testo standard del template (coerente e pronto)."
-        )
-
-        include_nums = set(LEAN_SECTION_NUMS) if stile_relazione.startswith("Lean") else {s["num"] for s in TEMPLATE_SECTIONS_DEFAULT}
-
-        template_sections = []
-        for sec in TEMPLATE_SECTIONS_DEFAULT:
-            num = sec["num"]
-            title = sec["title"]
-            default_text = sec.get("default","")
-            include = (num in include_nums)
-
-            text_val = default_text
-            if edit_avanzata:
-                with st.expander(f"{num}  {title}", expanded=False):
-                    include = st.checkbox("Includi questo paragrafo", value=include, key=f"tpl_inc_{num}")
-                    text_val = st.text_area("Testo", value=default_text, height=180, key=f"tpl_txt_{num}")
-
-            template_sections.append({
-                "num": num,
-                "title": title,
-                "text": text_val,
-                "include": include
-            })
+        # (template UI moved outside the button)
 
     payload = {
         "template_sections": template_sections,

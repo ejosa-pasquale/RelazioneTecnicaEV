@@ -874,6 +874,7 @@ def _first_nonempty_line(text: str) -> str:
     return ""
 
 
+# --- Caricamento template sezioni da file (se presente) ---import os, json_TEMPLATE_JSON_PATH = os.path.join(os.path.dirname(__file__), 'template_sections.json')try:    if os.path.exists(_TEMPLATE_JSON_PATH):        with open(_TEMPLATE_JSON_PATH, 'r', encoding='utf-8') as _f:            _tpl = json.load(_f)        if isinstance(_tpl, list) and len(_tpl) >= 40:            TEMPLATE_SECTIONS_DEFAULT = _tplexcept Exception:    pass
 class _NumberedCanvas(canvas.Canvas):
     """Canvas con numerazione 'Pagina X di Y' senza duplicare le pagine."""
 
@@ -1710,7 +1711,7 @@ def genera_pdf_relazione_bytes(data: Dict[str, Any]) -> bytes:
 
     # ALLEGATI e documentazione (in fondo, come richiesto)
     allg = data.get("allegati", "")
-    checklist = data.get("checklist") or []
+    checklist = (data.get("checklist") or data.get("checklist_documentale") or [])
     if _meaningful(allg) or checklist:
         story.append(PageBreak())
         story.append(_p("ALLEGATI E DOCUMENTAZIONE", h2))
