@@ -14,5 +14,12 @@
   "cavo_tipo": "FG16OM16 3G6 0.6/1kV",
   "modello_wallbox": "Cupra Charger Connect monofase",
   "ik_trifase_ka": 10.0,
-  "ik_monofase_ka": 6.0
+  "ik_monofase_ka": 6.0,
+  "progettista_nome": "Ing. Pasquale Senese",
+  "progettista_indirizzo": "Via Francesco Soave 30 - 20135 Milano (MI)",
+  "progettista_cell": "340 5731381",
+  "progettista_email": "pasquale.senese@ingpec.eu",
+  "progettista_piva": "14572980960",
+  "layout_incluso": "Fornitura e posa linea di alimentazione, protezioni e colonnine di ricarica secondo progetto.",
+  "layout_escluso": "Opere murarie, ripristini, pratiche con il distributore, opere edili non esplicitamente indicate."
 }

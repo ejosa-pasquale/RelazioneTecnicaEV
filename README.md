@@ -67,3 +67,18 @@ così il download funziona anche su ambienti dove il filesystem è **read-only**
 ## Template senza logo
 
 Il template di default è `relazione progetto elettrico -no logo.docx` (copiato in `templates/relazione_base.docx`).
+
+## Placeholder nuovi (v4)
+
+Nel template Word inserisci questi placeholder nei punti desiderati:
+
+- `{{LAYOUT_DESCRITTIVO}}` → testo descrittivo (Incluso/Escluso) del layout d’impianto
+- `{{COLONNINE}}` → elenco colonnine (multiplo)
+- `{{ALLEGATI_SCHEDA_TECNICA}}` → elenco allegati schede tecniche (DOCX/PDF)
+- `{{FOTO_GALLERY}}` → galleria foto
+- `{{DIAGRAMMA_IMPIANTO}}` → diagramma impianto
+
+## Cover page
+
+La cover viene generata automaticamente dall’app con i dati del progettista.
+Se il template contiene una cover grafica “difficile” (forme Word), elimina la prima pagina dal template e lascia il resto.
