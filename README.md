@@ -25,3 +25,15 @@ streamlit run app.py
 - Carica il tuo template DOCX.
 - Clicca **“Prepara template (agganci)”**.
 - Scarica e salva il “template_preparato.docx”: sarà quello che userai sempre.
+
+## Campi "aggiungere XXX" (template-driven)
+
+Nel template puoi scrivere nel **corpo del testo** frasi del tipo:
+
+- `aggiungere DESCRIZIONE INTERVENTO`
+- `aggiungere NOTE`
+
+L'app legge automaticamente tutte le occorrenze `aggiungere ...` (anche in tabelle/header/footer) e
+crea in interfaccia i campi corrispondenti. In generazione, sostituisce **quel testo** con il valore inserito.
+
+Suggerimento: usa etichette univoche (es. `aggiungere DESCR_INTERVENTO`, `aggiungere NOTE_IMPIANTO`).

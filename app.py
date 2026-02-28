@@ -6,6 +6,56 @@ from pathlib import Path
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
+from docx import Document
+
+def iter_all_paragraphs_doc(doc: Document):
+    for p in doc.paragraphs:
+        yield p
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    yield p
+                for nt in cell.tables:
+                    for nrow in nt.rows:
+                        for ncell in nrow.cells:
+                            for np in ncell.paragraphs:
+                                yield np
+    for section in doc.sections:
+        for hf in [section.header, section.footer]:
+            for p in hf.paragraphs:
+                yield p
+            for t in hf.tables:
+                for row in t.rows:
+                    for cell in row.cells:
+                        for p in cell.paragraphs:
+                            yield p
+
+_AGG_RE = re.compile(r"\baggiungere\s+([^\n\r]+)", re.IGNORECASE)
+
+def extract_aggiungere_fields(template_bytes: bytes):
+    """
+    Trova occorrenze del tipo 'aggiungere XXX' nel template (anche in tabelle/header/footer).
+    Ritorna una lista di dict: {key,label,token}.
+    - token: stringa completa da sostituire (es. 'aggiungere DESCRIZIONE INTERVENTO')
+    - key: chiave normalizzata per Streamlit
+    """
+    d = Document(io.BytesIO(template_bytes))
+    found = {}
+    for p in iter_all_paragraphs_doc(d):
+        txt = p.text or ""
+        for m in _AGG_RE.finditer(txt):
+            label = m.group(1).strip()
+            token = txt[m.start():m.end()]  # substring matched
+            # Normalizza key
+            key = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+            if not key:
+                key = f"campo_{len(found)+1}"
+            # se lo stesso label appare più volte, unifica
+            found.setdefault(key, {"key": key, "label": label, "token": f"aggiungere {label}"})
+    return list(found.values())
+
+
 from generator import (
     AllegatoItem,
     ColonninaItem,
@@ -18,14 +68,15 @@ from generator import (
 )
 
 APP_DIR = Path(__file__).parent
-DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "relazione_base_no_logo.docx"
+DEFAULT_TEMPLATE_PATH = APP_DIR / "templates" / "template_aggiungere.dotx"
 
 st.set_page_config(page_title="Relazione tecnica EV", layout="wide")
 st.title("Relazione tecnica — Generatore veloce")
-st.caption("Compila → allega foto/diagramma/schede → genera DOCX. L'app crea automaticamente i punti di aggancio nel corpo del testo.")
+st.caption("Flusso consigliato: 1) carica template 2) **Prepara template (agganci nel corpo)** 3) usa sempre quel template preparato 4) genera DOCX.")
 
 if "template_bytes" not in st.session_state:
     st.session_state.template_bytes = DEFAULT_TEMPLATE_PATH.read_bytes()
+    st.session_state.aggiungere_fields = extract_aggiungere_fields(st.session_state.template_bytes)
 if "photos" not in st.session_state:
     st.session_state.photos = []
 if "diagram" not in st.session_state:
@@ -34,6 +85,10 @@ if "colonnine" not in st.session_state:
     st.session_state.colonnine = []
 if "allegati" not in st.session_state:
     st.session_state.allegati = []
+if "aggiungere_fields" not in st.session_state:
+    st.session_state.aggiungere_fields = []
+if "aggiungere_values" not in st.session_state:
+    st.session_state.aggiungere_values = {}
 
 with st.sidebar:
     st.header("1) Template")
@@ -41,6 +96,8 @@ with st.sidebar:
     if up:
         st.session_state.template_bytes = up.getvalue()
         st.success("Template caricato.")
+        st.session_state.aggiungere_fields = extract_aggiungere_fields(st.session_state.template_bytes)
+
     colA, colB = st.columns(2)
     with colA:
         if st.button("Prepara template (agganci)", use_container_width=True):
@@ -90,7 +147,19 @@ with tab1:
         distanza = st.number_input("Distanza (m)", min_value=0, value=60, step=1)
         potenza = st.number_input("Potenza impegnata (kW)", min_value=0.0, value=4.0, step=0.5)
 
-    st.subheader("Layout d'impianto (testo nel corpo)")
+    
+    st.subheader("Campi del template (AGGIUNGERE …)")
+    st.caption("Nel template hai scritto 'aggiungere XXX': qui inserisci il valore che sostituirà quel testo nel corpo del documento.")
+    if not st.session_state.aggiungere_fields:
+        st.info("Nessun campo 'aggiungere …' trovato nel template.")
+    else:
+        for f in st.session_state.aggiungere_fields:
+            k = f"aggi_{f['key']}"
+            default = st.session_state.aggiungere_values.get(f["key"], "")
+            val = st.text_area(f["label"], value=default, height=80, key=k)
+            st.session_state.aggiungere_values[f["key"]] = val
+
+st.subheader("Layout d'impianto (testo nel corpo)")
     layout_incluso = st.text_area("Incluso (1 riga = 1 bullet)", height=120)
     layout_escluso = st.text_area("Escluso (1 riga = 1 bullet)", height=120)
 
@@ -244,6 +313,7 @@ with colG1:
             photos=st.session_state.photos,
             diagram_bytes=st.session_state.diagram,
             allegati=st.session_state.allegati,
+            extra_fields={f['label']: st.session_state.aggiungere_values.get(f['key'], '') for f in st.session_state.aggiungere_fields},
         )
         st.session_state["last_docx"] = docx
         st.success("Documento generato.")

@@ -4,7 +4,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Union, Iterable, Tuple
+from typing import Dict, List, Optional, Union, Iterable
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -67,7 +67,7 @@ class RelazioneData:
     layout_escluso: str = ""
 
 
-# -------------------- Template anchors --------------------
+# -------------------- Anchors / placeholders --------------------
 ANCHORS = {
     "DITTA_ESECUTRICE": "{{DITTA_ESECUTRICE}}",
     "LAYOUT": "{{LAYOUT_DESCRITTIVO}}",
@@ -80,9 +80,9 @@ ANCHORS = {
 HEADING_HINTS = {
     "DITTA_ESECUTRICE": ["DITTA ESECUTRICE", "IMPRESA ESECUTRICE"],
     "LAYOUT": ["LAYOUT D'IMPIANTO", "LAYOUT D’IMPIANTO"],
-    "COLONNINE": ["COLONNINE", "WALLBOX", "STAZIONI DI RICARICA"],
+    "COLONNINE": ["LOCALIZZAZIONE DELL'IMPIANTO", "LOCALIZZAZIONE DELL’IMPIANTO", "COLONNINA", "WALLBOX"],
     "FOTO": ["DOCUMENTAZIONE FOTOGRAFICA", "FOTOGRAFICA"],
-    "DIAGRAMMA": ["SCHEMA", "DIAGRAMMA"],
+    "DIAGRAMMA": ["SCHEMA", "DIAGRAMMA", "LAYOUT"],
     "ALLEGATI": ["ALLEGATI", "SCHEDA TECNICA", "SCHEDE TECNICHE"],
 }
 
@@ -100,23 +100,28 @@ FIELD_PLACEHOLDERS = {
     "{{CAVO_TIPO}}": lambda d: d.cavo_tipo,
 }
 
-_SAMPLE_REPLACEMENTS = {
-    "Busnago, 06/02/2024": "{{LUOGO_DATA}}",
-    "Nome": "{{COMMITTENTE}}",
-    "via della SS. Annunziata 32/A": "{{SITO_INDIRIZZO}}",
-    "55100 Lucca": "{{SITO_CAP_CITTA}}",
-    "nuovo impianto di ricarica per veicolo elettrico": "{{OGGETTO}}",
+# fallback su template "statico": sostituisce anche frasi campione del file originale
+SAMPLE_TEXT_MAPPING = lambda d: {
+    "Busnago, 06/02/2024": d.luogo_data,
+    "Nome": d.committente,
+    "via della SS. Annunziata 32/A": d.sito_indirizzo,
+    "55100 Lucca": d.sito_cap_citta,
+    "nuovo impianto di ricarica per veicolo elettrico": d.oggetto,
+    "dista circa 60 metri": f"dista circa {d.distanza_m} metri",
+    "pari a 10 kA": f"pari a {d.ik_trifase_ka:g} kA",
+    "pari a 6 kA": f"pari a {d.ik_monofase_ka:g} kA",
+    "4 kW.": f"{d.potenza_impegnata_kw:g} kW.",
+    "60 m di cavo FG16OM16 3G6 0.6/1kV": f"{d.cavo_lunghezza_m} m di cavo {d.cavo_tipo}",
 }
 
 
-# -------------------- Paragraph iteration (BODY + TABLES + HEADER/FOOTER) --------------------
+# -------------------- Iteration across doc --------------------
 def iter_table_paragraphs(doc: Document) -> Iterable:
     for t in doc.tables:
         for row in t.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
                     yield p
-                # nested tables inside cell
                 for nt in cell.tables:
                     for nrow in nt.rows:
                         for ncell in nrow.cells:
@@ -142,6 +147,32 @@ def iter_all_paragraphs(doc: Document) -> Iterable:
     for p in iter_header_footer_paragraphs(doc):
         yield p
 
+def _style_name(p) -> str:
+    try:
+        return (p.style.name or "").lower()
+    except Exception:
+        return ""
+
+def _is_toc_paragraph(p) -> bool:
+    # Word TOC paragraphs often have styles like TOC 1, TOC 2 ...
+    s = _style_name(p)
+    if s.startswith("toc"):
+        return True
+    # The whole TOC in your doc appears inside a table; treat table paragraphs as "likely toc" when very short and numeric.
+    return False
+
+def _is_in_table(p) -> bool:
+    # check ancestors for table-cell tag 'w:tc'
+    try:
+        parent = p._p.getparent()
+        while parent is not None:
+            if parent.tag.endswith('}tc'):
+                return True
+            parent = parent.getparent()
+    except Exception:
+        pass
+    return False
+
 def doc_contains_text(doc: Document, text: str) -> bool:
     needle = text.lower()
     for p in iter_all_paragraphs(doc):
@@ -150,7 +181,7 @@ def doc_contains_text(doc: Document, text: str) -> bool:
     return False
 
 
-# -------------------- Doc helpers --------------------
+# -------------------- Basic mutations --------------------
 def _is_heading_like(text: str) -> bool:
     t = (text or "").strip()
     return bool(re.match(r"^\d+(\.|)\s+", t))
@@ -180,21 +211,35 @@ def _replace_everywhere(doc: Document, mapping: Dict[str, str]):
     for p in iter_all_paragraphs(doc):
         _replace_in_paragraph(p, mapping)
 
-def _find_first_paragraph_containing(doc: Document, needles: List[str]):
+def _find_first_paragraph_containing(doc: Document, needles: List[str], prefer_body: bool = True):
     needles_l = [n.lower() for n in needles]
+    best = None
     for p in iter_all_paragraphs(doc):
         tx = (p.text or "").lower()
-        if any(n in tx for n in needles_l):
+        if not any(n in tx for n in needles_l):
+            continue
+        # skip TOC paragraphs if possible
+        if _is_toc_paragraph(p):
+            continue
+        if prefer_body:
+            # Prefer real body paragraphs (not in table, not header/footer)
+            if not _is_in_table(p) and p in doc.paragraphs:
+                return p
+            best = best or p
+        else:
             return p
-    return None
+    return best
 
 def ensure_anchors(doc: Document) -> List[str]:
+    """
+    Inserisce i marker nel CORPO del testo (non nell'indice/TOC).
+    """
     created = []
     for key, marker in ANCHORS.items():
         if doc_contains_text(doc, marker):
             continue
         hints = HEADING_HINTS.get(key, [])
-        anchor_after = _find_first_paragraph_containing(doc, hints) if hints else None
+        anchor_after = _find_first_paragraph_containing(doc, hints, prefer_body=True) if hints else None
         new_p = doc.add_paragraph(marker)
         if anchor_after is None:
             created.append(marker)
@@ -202,17 +247,6 @@ def ensure_anchors(doc: Document) -> List[str]:
         anchor_after._p.addnext(new_p._p)
         created.append(marker)
     return created
-
-def retrofit_field_placeholders(doc: Document) -> int:
-    count = 0
-    for p in iter_all_paragraphs(doc):
-        before = p.text
-        for old, ph in _SAMPLE_REPLACEMENTS.items():
-            if old in (p.text or ""):
-                _replace_in_paragraph(p, {old: ph})
-        if p.text != before:
-            count += 1
-    return count
 
 def build_field_mapping(data: RelazioneData) -> Dict[str, str]:
     return {k: fn(data) for k, fn in FIELD_PLACEHOLDERS.items()}
@@ -226,89 +260,80 @@ def _insert_bullets_after(paragraph, doc: Document, lines: List[str]):
         elm.addnext(bp._p)
         elm = bp._p
 
-def _clear_section_after_heading(doc: Document, heading_any: List[str]):
-    """Cancella paragrafi dopo il primo heading trovato (anche in tabelle) fino al prossimo heading numerato."""
-    title = _find_first_paragraph_containing(doc, heading_any)
-    if not title:
-        return None
-    # In tables, doc.paragraphs doesn't help; we delete by walking following siblings in XML until we find heading-like paragraph.
-    # Best-effort: if it's in body, we can use doc.paragraphs list; if not, we only wipe the title paragraph content.
-    try:
-        body_paras = list(doc.paragraphs)
-        if title in body_paras:
-            idx = body_paras.index(title)
-            to_delete = []
-            for p2 in body_paras[idx+1:]:
-                if _is_heading_like(p2.text):
-                    break
-                to_delete.append(p2)
-            for p2 in reversed(to_delete):
-                try:
-                    _delete_paragraph(p2)
-                except Exception:
-                    pass
-            return title
-    except Exception:
-        pass
-    return title
 
 # -------------------- Section writers --------------------
+def _clear_section_after_heading_body(doc: Document, heading_any: List[str]):
+    """Cancella paragrafi dopo il titolo NEL BODY fino al prossimo titolo numerato."""
+    title = _find_first_paragraph_containing(doc, heading_any, prefer_body=True)
+    if not title:
+        return None
+    body_paras = list(doc.paragraphs)
+    if title not in body_paras:
+        return title
+    idx = body_paras.index(title)
+    to_delete = []
+    for p2 in body_paras[idx+1:]:
+        if _is_heading_like(p2.text):
+            break
+        to_delete.append(p2)
+    for p2 in reversed(to_delete):
+        try:
+            _delete_paragraph(p2)
+        except Exception:
+            pass
+    return title
+
 def write_layout(doc: Document, data: RelazioneData):
+    # prefer explicit anchor in BODY
     marker = ANCHORS["LAYOUT"]
-    p = _find_first_paragraph_containing(doc, [marker])
+    p = _find_first_paragraph_containing(doc, [marker], prefer_body=True)
     if p:
         _wipe_paragraph(p)
         anchor = p
     else:
-        anchor = _clear_section_after_heading(doc, ["LAYOUT D'IMPIANTO", "LAYOUT D’IMPIANTO"])
+        anchor = _clear_section_after_heading_body(doc, ["LAYOUT D'IMPIANTO", "LAYOUT D’IMPIANTO"])
         if not anchor:
             return
 
-    # If anchor is a heading itself and we didn't delete content (table case), we just insert after it.
     elm = anchor._p
-
     if data.layout_incluso.strip():
         lbl = doc.add_paragraph("Incluso:")
-        if lbl.runs:
-            lbl.runs[0].bold = True
+        if lbl.runs: lbl.runs[0].bold = True
         elm.addnext(lbl._p); elm = lbl._p
         _insert_bullets_after(lbl, doc, data.layout_incluso.splitlines())
-
     if data.layout_escluso.strip():
         lbl2 = doc.add_paragraph("Escluso:")
-        if lbl2.runs:
-            lbl2.runs[0].bold = True
+        if lbl2.runs: lbl2.runs[0].bold = True
         elm.addnext(lbl2._p); elm = lbl2._p
         _insert_bullets_after(lbl2, doc, data.layout_escluso.splitlines())
 
 def write_colonnine(doc: Document, colonnine: List[ColonninaItem]):
     marker = ANCHORS["COLONNINE"]
-    p = _find_first_paragraph_containing(doc, [marker])
+    p = _find_first_paragraph_containing(doc, [marker], prefer_body=True)
     if not p:
         return
     _wipe_paragraph(p)
+    if not colonnine:
+        return
     lines = [f"n. {c.quantita} — {c.descrizione}" for c in colonnine]
     _insert_bullets_after(p, doc, lines)
 
 def write_ditta_esecutrice(doc: Document, esecutrice: EsecutriceData):
     marker = ANCHORS["DITTA_ESECUTRICE"]
-    p = _find_first_paragraph_containing(doc, [marker])
+    p = _find_first_paragraph_containing(doc, [marker], prefer_body=True)
     if not p:
         return
     _wipe_paragraph(p)
     lines = []
-    if esecutrice.nome.strip():
-        lines.append(esecutrice.nome.strip())
-    if esecutrice.indirizzo.strip():
-        lines.append(esecutrice.indirizzo.strip())
-    if esecutrice.piva.strip():
-        lines.append(f"P.IVA: {esecutrice.piva.strip()}")
+    if esecutrice.nome.strip(): lines.append(esecutrice.nome.strip())
+    if esecutrice.indirizzo.strip(): lines.append(esecutrice.indirizzo.strip())
+    if esecutrice.piva.strip(): lines.append(f"P.IVA: {esecutrice.piva.strip()}")
     if lines:
         _insert_bullets_after(p, doc, lines)
 
 def write_foto(doc: Document, photos: List[PhotoItem]):
     marker = ANCHORS["FOTO"]
-    p = _find_first_paragraph_containing(doc, [marker])
+    p = _find_first_paragraph_containing(doc, [marker], prefer_body=True)
     if not p or not photos:
         return
     _wipe_paragraph(p)
@@ -338,7 +363,7 @@ def write_foto(doc: Document, photos: List[PhotoItem]):
 
 def write_diagramma(doc: Document, diagram_bytes: Optional[bytes]):
     marker = ANCHORS["DIAGRAMMA"]
-    p = _find_first_paragraph_containing(doc, [marker])
+    p = _find_first_paragraph_containing(doc, [marker], prefer_body=True)
     if not p or not diagram_bytes:
         return
     _wipe_paragraph(p)
@@ -346,12 +371,13 @@ def write_diagramma(doc: Document, diagram_bytes: Optional[bytes]):
 
 def write_allegati(doc: Document, allegati: List[AllegatoItem]):
     marker = ANCHORS["ALLEGATI"]
-    p = _find_first_paragraph_containing(doc, [marker])
+    p = _find_first_paragraph_containing(doc, [marker], prefer_body=True)
     if not p or not allegati:
         return
     _wipe_paragraph(p)
     lines = [a.filename for a in allegati]
     _insert_bullets_after(p, doc, lines)
+
 
 # -------------------- Cover writer --------------------
 def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaData, esecutrice: Optional[EsecutriceData] = None):
@@ -414,10 +440,10 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
     for e in reversed(elems):
         body.insert(0, e)
 
+
 # -------------------- Main API --------------------
 def prepare_template(template: Union[bytes, Path]) -> bytes:
     doc = Document(io.BytesIO(template) if isinstance(template, (bytes, bytearray)) else str(template))
-    retrofit_field_placeholders(doc)
     ensure_anchors(doc)
     out = io.BytesIO()
     doc.save(out)
@@ -432,27 +458,41 @@ def generate_document(
     photos: List[PhotoItem],
     diagram_bytes: Optional[bytes],
     allegati: List[AllegatoItem],
+    extra_fields: Optional[Dict[str, str]] = None,
 ) -> bytes:
     doc = Document(io.BytesIO(template) if isinstance(template, (bytes, bytearray)) else str(template))
 
+    # 1) anchors in body
     ensure_anchors(doc)
 
-    ph = build_field_mapping(data)
-    _replace_everywhere(doc, ph)
+    # 2) replace placeholders if present
+    _replace_everywhere(doc, build_field_mapping(data))
+
+    # 3) also replace common static strings (template originale)
+    _replace_everywhere(doc, SAMPLE_TEXT_MAPPING(data))
+
+    # 4) cover
+    # 2b) sostituzione campi 'aggiungere XXX' (template-driven)
+    if extra_fields:
+        # sostituisci sia 'aggiungere XXX' che eventuali 'AGGIUNGERE XXX'
+        mapping = {}
+        for label, value in extra_fields.items():
+            token = f"aggiungere {label}".strip()
+            mapping[token] = value
+            mapping[token.capitalize()] = value
+            mapping[token.upper()] = value
+        _replace_everywhere(doc, mapping)
 
     insert_cover(doc, data, progettista, esecutrice)
 
+    # 5) sections (in BODY, not TOC)
     if esecutrice:
         write_ditta_esecutrice(doc, esecutrice)
     write_layout(doc, data)
-    if colonnine:
-        write_colonnine(doc, colonnine)
-    if photos:
-        write_foto(doc, photos)
-    if diagram_bytes:
-        write_diagramma(doc, diagram_bytes)
-    if allegati:
-        write_allegati(doc, allegati)
+    write_colonnine(doc, colonnine)
+    write_foto(doc, photos)
+    write_diagramma(doc, diagram_bytes)
+    write_allegati(doc, allegati)
 
     out = io.BytesIO()
     doc.save(out)
