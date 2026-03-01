@@ -384,72 +384,55 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
     body = doc._body._element
 
     # --- Fix duplication ---
-    # Some templates already include a cover page. Older versions of this
-    # function always *added* a new cover and moved it to the top, leaving the
-    # original cover in place (result: duplicated cover at the beginning).
+    # Some templates already include front-matter (cover + index/TOC + revision
+    # page). Older versions of this function always *added* a new cover and
+    # moved it to the top, leaving the original front-matter in place (result:
+    # duplicated beginning of document).
     #
-    # Strategy: if the document appears to start with a cover and contains an
-    # early page-break, remove everything from the start up to (and including)
-    # that first page-break paragraph, then inject the new cover.
-    from docx.oxml.ns import qn
+    # Robust strategy: remove everything in the BODY before the first real
+    # numbered heading of the report (e.g. "1." or "1 ") or "CAPITOLO 1".
+    # This works even when the template uses section breaks instead of page
+    # breaks, or when the cover content is in tables/shapes.
 
-    def _paragraph_has_page_break(p) -> bool:
-        try:
-            for r in p.runs:
-                for br in r._r.findall('.//w:br', r._r.nsmap):
-                    if br.get(qn('w:type')) == 'page':
-                        return True
-        except Exception:
-            pass
+    def _is_start_of_main_content(text: str) -> bool:
+        t = (text or "").strip().lower()
+        if not t:
+            return False
+        if re.match(r"^1(\.|)\s+", t):
+            return True
+        if t.startswith("capitolo 1"):
+            return True
+        # fallback: some templates write "1 Premessa" (no dot)
+        if t.startswith("1") and "premessa" in t:
+            return True
         return False
 
-    def _looks_like_cover(first_paras: List[str]) -> bool:
-        joined = "\n".join(first_paras).lower()
-        hints = [
-            "relazione tecnica",
-            "committente",
-            "sito:",
-            "oggetto",
-            "progettista",
-            "{{luogo_data}}",
-            "{{committente}}",
-        ]
-        return any(h in joined for h in hints)
-
-    def _remove_existing_cover_if_any():
-        early_text: List[str] = []
-        for p in doc.paragraphs[:15]:
-            t = (p.text or "").strip()
-            if t:
-                early_text.append(t)
-
-        # If it doesn't look like a cover, do nothing.
-        if not _looks_like_cover(early_text):
-            return
-
-        # Find the first page break early in the doc (typically end of cover).
-        pb_para = None
-        for p in doc.paragraphs[:60]:
-            if _paragraph_has_page_break(p):
-                pb_para = p
+    def _remove_front_matter_if_any():
+        body_paras = list(doc.paragraphs)
+        target_p = None
+        for p in body_paras[:250]:
+            if _is_start_of_main_content(p.text):
+                target_p = p
                 break
-        if pb_para is None:
+        if target_p is None:
             return
 
         body_list = list(body)
         try:
-            end_idx = body_list.index(pb_para._p)
+            cut_idx = body_list.index(target_p._p)
         except Exception:
             return
 
-        # Remove old cover elements from start up to and including that paragraph.
-        for e in list(body_list[: end_idx + 1]):
+        if cut_idx <= 0:
+            return
+
+        for e in list(body_list[:cut_idx]):
             try:
                 body.remove(e)
             except Exception:
                 pass
 
-    _remove_existing_cover_if_any()
+    _remove_front_matter_if_any()
 
     def add_par(text: str, size: int, bold: bool, align: str):
         p = doc.add_paragraph()
