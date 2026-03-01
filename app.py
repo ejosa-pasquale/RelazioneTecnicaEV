@@ -317,7 +317,7 @@ amb_txt = ", ".join([a for a in ambienti if a != "Altro"])
 if "Altro" in ambienti:
     amb_txt += f", Altro: {amb_altro}"
 
-premessa = f"""La presente Relazione Tecnico‑Specialistica è redatta nell’ambito dell’incarico conferito dalla Committenza "{committente}" e riguarda l’intervento "{oggetto}" presso "{luogo}".
+premessa = f"""La presente Relazione Tecnico Specialistica è redatta nell’ambito dell’incarico conferito dalla Committenza "{committente}" e riguarda l’intervento "{oggetto}" presso "{luogo}".
 
 FINALITÀ E PERIMETRO
 
