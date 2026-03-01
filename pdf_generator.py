@@ -183,17 +183,24 @@ class _NumberedCanvas(canvas.Canvas):
         self._saved_page_states: List[dict] = []
 
     def showPage(self):
+        # IMPORTANT:
+        # We must NOT call Canvas.showPage() here.
+        # reportlab calls showPage() for every page during doc.build().
+        # If we emit pages here and then replay them in save() to add
+        # "Pagina X di Y", we would output every page twice.
+        #
+        # Correct pattern: store the page state and start a new page.
         self._saved_page_states.append(dict(self.__dict__))
-        super().showPage()
+        self._startPage()
 
     def save(self):
-        page_count = len(self._saved_page_states) + 1
+        # _saved_page_states contains one state per page.
+        page_count = len(self._saved_page_states)
         for state in self._saved_page_states:
             self.__dict__.update(state)
             self._draw_page_number(page_count)
-            super().showPage()
-        self._draw_page_number(page_count)
-        super().save()
+            canvas.Canvas.showPage(self)
+        canvas.Canvas.save(self)
 
     def _draw_page_number(self, page_count: int):
         self.saveState()
