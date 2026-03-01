@@ -12,6 +12,7 @@ st.caption("Compilazione guidata (stile v7) + calcoli essenziali + generazione P
 
 PROGETTISTA_BLOCCO = """Ing. Pasquale Senese
 Via Francesco Soave 30 - 20135 Milano
+Ordine Ingegneri della Provincia di Milano - Sezione A 34454
 Cell: 340 5731381
 Email: pasquale.senese@ingpec.eu
 P.IVA: 14572980960
