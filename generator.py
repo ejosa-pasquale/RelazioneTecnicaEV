@@ -493,6 +493,8 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
 def prepare_template(template: Union[bytes, Path]) -> bytes:
     doc = Document(io.BytesIO(template) if isinstance(template, (bytes, bytearray)) else str(template))
     ensure_anchors(doc)
+    _deduplicate_body_if_repeated(doc)
+
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
@@ -542,6 +544,34 @@ def generate_document(
     write_diagramma(doc, diagram_bytes)
     write_allegati(doc, allegati)
 
+    _deduplicate_body_if_repeated(doc)
+
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
+def _deduplicate_body_if_repeated(doc: Document):
+    """Remove accidental full-document duplication (A+B where B == A).
+
+    This is a defensive fix for cases where the template/front-matter manipulation
+    or upstream pipeline causes the body XML to be appended twice.
+    We compare the underlying body child elements and, if the second half is
+    identical to the first half, we drop the second half.
+    """
+    body = doc._body._element
+    elems = list(body)
+    n = len(elems)
+    if n < 40 or n % 2 != 0:
+        return
+    half = n // 2
+    # Use the serialized XML as a stable signature
+    first = [e.xml for e in elems[:half]]
+    second = [e.xml for e in elems[half:]]
+    if first == second:
+        for e in elems[half:]:
+            try:
+                body.remove(e)
+            except Exception:
+                pass
+
+
+
