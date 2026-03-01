@@ -383,6 +383,74 @@ def write_allegati(doc: Document, allegati: List[AllegatoItem]):
 def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaData, esecutrice: Optional[EsecutriceData] = None):
     body = doc._body._element
 
+    # --- Fix duplication ---
+    # Some templates already include a cover page. Older versions of this
+    # function always *added* a new cover and moved it to the top, leaving the
+    # original cover in place (result: duplicated cover at the beginning).
+    #
+    # Strategy: if the document appears to start with a cover and contains an
+    # early page-break, remove everything from the start up to (and including)
+    # that first page-break paragraph, then inject the new cover.
+    from docx.oxml.ns import qn
+
+    def _paragraph_has_page_break(p) -> bool:
+        try:
+            for r in p.runs:
+                for br in r._r.findall('.//w:br', r._r.nsmap):
+                    if br.get(qn('w:type')) == 'page':
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def _looks_like_cover(first_paras: List[str]) -> bool:
+        joined = "\n".join(first_paras).lower()
+        hints = [
+            "relazione tecnica",
+            "committente",
+            "sito:",
+            "oggetto",
+            "progettista",
+            "{{luogo_data}}",
+            "{{committente}}",
+        ]
+        return any(h in joined for h in hints)
+
+    def _remove_existing_cover_if_any():
+        early_text: List[str] = []
+        for p in doc.paragraphs[:15]:
+            t = (p.text or "").strip()
+            if t:
+                early_text.append(t)
+
+        # If it doesn't look like a cover, do nothing.
+        if not _looks_like_cover(early_text):
+            return
+
+        # Find the first page break early in the doc (typically end of cover).
+        pb_para = None
+        for p in doc.paragraphs[:60]:
+            if _paragraph_has_page_break(p):
+                pb_para = p
+                break
+        if pb_para is None:
+            return
+
+        body_list = list(body)
+        try:
+            end_idx = body_list.index(pb_para._p)
+        except Exception:
+            return
+
+        # Remove old cover elements from start up to and including that paragraph.
+        for e in list(body_list[: end_idx + 1]):
+            try:
+                body.remove(e)
+            except Exception:
+                pass
+
+    _remove_existing_cover_if_any()
+
     def add_par(text: str, size: int, bold: bool, align: str):
         p = doc.add_paragraph()
         run = p.add_run(text)
@@ -439,9 +507,6 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
         body.remove(e)
     for e in reversed(elems):
         body.insert(0, e)
-
-
-# -------------------- Main API --------------------
 def prepare_template(template: Union[bytes, Path]) -> bytes:
     doc = Document(io.BytesIO(template) if isinstance(template, (bytes, bytearray)) else str(template))
     ensure_anchors(doc)
