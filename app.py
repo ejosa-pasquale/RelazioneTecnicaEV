@@ -322,9 +322,20 @@ premessa = f"""La presente Relazione Tecnico‑Specialistica è redatta nell’a
 FINALITÀ E PERIMETRO
 
 Il documento ha lo scopo di:
+
 • descrivere l’impianto e le opere eseguite/da eseguire, con indicazione dei confini dell’intervento;
 • richiamare i riferimenti legislativi e normativi applicabili;
 • esplicitare i criteri di progettazione e le verifiche di coordinamento essenziali (correnti, cadute di tensione, protezioni), in coerenza con la regola dell’arte.
+
+Si precisa che la Stazione di ricarica non richiede la presenza di personale fisso e pertanto non va ad incidere in alcun modo sui parametri connessi con gli standard urbanistici e gli spazi ad essa relativa sono da ritenersi “senza permanenza di persone”.
+In relazione a quanto previsto dalla vigente normativa in materia di portatori di handicap è opportuno precisare che i locali tecnici sono accessibili esclusivamente al personale specializzato per la manutenzione che non può essere svolta da persone con ridotte capacità motorie; in questo senso le prescrizioni di cui alla legge 09/01/1989 n° 13 e successive modificazioni, sono derogabili ai sensi dell’art. 7.4 del D.M. n° 236 del 14/06/1989.
+Tutte le operazioni di accesso ai locali tecnici verranno effettuate in conformità al D.Lgs 81/2008 mediante utilizzo di idonea attrezzatura a norma.
+Le infrastrutture di ricarica dei veicoli elettrici non rientrano fra le attività soggette ai controlli di prevenzione incendi ai sensi dell’Allegato I del D.P.R. n. 151 del 1 agosto 2011 “Regolamento recante semplificazione della disciplina dei procedimenti relativi alla prevenzione incendi, a norma dell’articolo 49 comma 4-quater, decreto-legge 31 maggio 2010, n. 78, convertito con modificazioni, dalla legge 30 luglio 2010, n. 122”, pertanto non sono soggette al benestare dei VV.F. e non necessitano di parere preventivo da parte del Comando Provinciale dei Vigili del Fuoco. 
+
+Qualora l’installazione dell’infrastruttura di ricarica avvenga in una attività soggetta al controllo dei VV.F. si applicano le indicazioni riportate nelle linee guida contenute nella Circolare 2/2018 protocollo U.0015000 del 05/11/2018.
+
+Saranno inoltre rispettate ed osservate le norme relative alla prevenzione infortuni ed alla sicurezza in cantiere.
+
 
 VALENZA DOCUMENTALE
 
@@ -678,7 +689,7 @@ dove:
 •	Iz è la portata della linea.
 Per quanto riguarda il soddisfacimento della seconda condizione, si terrà presente che:
 
-•	gli interruttori per uso domestico o similare (norma CEI 23-3 e 23-18) hanno una corrente di funzionamento If 1,45 x In;
+•	gli interruttori per uso domestico o similare (norma CEI 23-3 e 23-18) hanno una corrente di funzionamento If = 1,45 x In;
 •	gli interruttori conformi alla norma CEI 17-5 hanno una corrente di funzionamento If = 1,35 x In, per correnti nominali fino a 63 A e If = 1,25 x In, per valori della corrente nominale superiori a 63 A.
 •	Quando la protezione dalle sovracorrenti sarà effettuata con fusibili si terranno presenti le relazioni in normativa applicabile.
 3.5.2 Cortocircuiti (CEI 64-8 art. 434.3)
@@ -688,9 +699,9 @@ dove:
 •	I = corrente di corto circuito in Ampere;
 •	t = durata del corto circuito in secondi;
 •	K = fattore relativo alla natura dell'isolante
-	115 per cavo in rame con guaina esterna in PVC;
-	135 per cavi in rame isolati con gomma ordinaria o gomma butilica;
-	143 per cavi in rame isolati con gomma etilenpropilenica e propilene reticolato.
+-	115 per cavo in rame con guaina esterna in PVC;
+-	135 per cavi in rame isolati con gomma ordinaria o gomma butilica;
+-	143 per cavi in rame isolati con gomma etilenpropilenica e propilene reticolato.
 •	S = sezione del conduttore in mm.
 
 3.6 Protezione dai contatti indiretti
@@ -733,6 +744,15 @@ Icc-max < PdI (Icu) del dispositivo di protezione (rif. CEI EN 60947-2).
 
 3.9 Quadri elettrici
 Quadri conformi a CEI EN 61439-1/2 (e/o CEI 23-51 per domestici/similari). Cablaggio interno con conduttori idonei (es. FS17 CPR) e dimensionato per corrente nominale e cortocircuito nel punto di installazione.
+Tutti i quadri e i dispositivi di protezione scelti (fusibili, interruttori) saranno di primaria marca: e dovranno essere del tipo in materiale termoplastico salvo diversa indicazione.
+I quadri saranno completi di telai e pannellature idonee per il montaggio di apparecchi modulari e scatolati, e dovranno essere corredati di appositi cartellini fissati in modo imperdibile che indicheranno chiaramente le funzioni svolte dalle varie apparecchiature installate.
+Sui quadri troveranno posto le protezioni magnetotermiche differenziali necessarie per attuare la protezione, il sezionamento e la suddivisione dei circuiti previsti con riferimento alla vigente normativa e in considerazione delle esigenze di sicurezza, continuità del servizio e praticità di manutenzione.
+L'ingresso delle condutture (cavi provenienti dal contatore) sarà realizzato nella parte inferiore dello stesso; analogamente l’uscita delle condutture (cavi verso le utenze) sarà realizzata nella parte inferiore dello stesso.
+Si raccomanda, nell’ingresso delle condutture al quadro, il mantenimento del grado di protezione iniziale dello stesso, mediante l’utilizzo di appositi pressa-cavi o guarnizioni. Le dimensioni dei quadri e le caratteristiche tecniche delle apparecchiature in essi installate sono specificate negli schemi elettrici allegati.
+3.10 Distribuzione Generale 
+Quanto segue è valido solo nel caso in cui il POD, e quindi il contatore fiscale ed il DG.
+Gli ingressi delle condutture dall’Ente Distributore e delle condutture del fornitore dei servizi sono convogliati alla conchiglia dei quadri a mezzo di tubazione interrata all’interno della proprietà.
+Le condutture della distribuzione saranno unicamente cavi unipolari tipo FG16R16/FG16M16, che saranno usati per sezioni di conduttore superiore a 25 mm2, mentre per sezioni inferiore sarà ammesso uso di cavi multipolare del tipo FG16(O)R16 o FRG17, che saranno utilizzati anche per le alimentazioni di utenze o i collegamenti di segnale nei locali tecnologici.
 
 {("Integrazioni: " + criterio_note) if criterio_note.strip() else ""}"""
         )
