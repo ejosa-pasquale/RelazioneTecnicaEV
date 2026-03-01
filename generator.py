@@ -383,57 +383,6 @@ def write_allegati(doc: Document, allegati: List[AllegatoItem]):
 def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaData, esecutrice: Optional[EsecutriceData] = None):
     body = doc._body._element
 
-    # --- Fix duplication ---
-    # Some templates already include front-matter (cover + index/TOC + revision
-    # page). Older versions of this function always *added* a new cover and
-    # moved it to the top, leaving the original front-matter in place (result:
-    # duplicated beginning of document).
-    #
-    # Robust strategy: remove everything in the BODY before the first real
-    # numbered heading of the report (e.g. "1." or "1 ") or "CAPITOLO 1".
-    # This works even when the template uses section breaks instead of page
-    # breaks, or when the cover content is in tables/shapes.
-
-    def _is_start_of_main_content(text: str) -> bool:
-        t = (text or "").strip().lower()
-        if not t:
-            return False
-        if re.match(r"^1(\.|)\s+", t):
-            return True
-        if t.startswith("capitolo 1"):
-            return True
-        # fallback: some templates write "1 Premessa" (no dot)
-        if t.startswith("1") and "premessa" in t:
-            return True
-        return False
-
-    def _remove_front_matter_if_any():
-        body_paras = list(doc.paragraphs)
-        target_p = None
-        for p in body_paras[:250]:
-            if _is_start_of_main_content(p.text):
-                target_p = p
-                break
-        if target_p is None:
-            return
-
-        body_list = list(body)
-        try:
-            cut_idx = body_list.index(target_p._p)
-        except Exception:
-            return
-
-        if cut_idx <= 0:
-            return
-
-        for e in list(body_list[:cut_idx]):
-            try:
-                body.remove(e)
-            except Exception:
-                pass
-
-    _remove_front_matter_if_any()
-
     def add_par(text: str, size: int, bold: bool, align: str):
         p = doc.add_paragraph()
         run = p.add_run(text)
@@ -490,11 +439,12 @@ def insert_cover(doc: Document, data: RelazioneData, progettista: ProgettistaDat
         body.remove(e)
     for e in reversed(elems):
         body.insert(0, e)
+
+
+# -------------------- Main API --------------------
 def prepare_template(template: Union[bytes, Path]) -> bytes:
     doc = Document(io.BytesIO(template) if isinstance(template, (bytes, bytearray)) else str(template))
     ensure_anchors(doc)
-    _deduplicate_body_if_repeated(doc)
-
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
@@ -544,34 +494,6 @@ def generate_document(
     write_diagramma(doc, diagram_bytes)
     write_allegati(doc, allegati)
 
-    _deduplicate_body_if_repeated(doc)
-
     out = io.BytesIO()
     doc.save(out)
     return out.getvalue()
-def _deduplicate_body_if_repeated(doc: Document):
-    """Remove accidental full-document duplication (A+B where B == A).
-
-    This is a defensive fix for cases where the template/front-matter manipulation
-    or upstream pipeline causes the body XML to be appended twice.
-    We compare the underlying body child elements and, if the second half is
-    identical to the first half, we drop the second half.
-    """
-    body = doc._body._element
-    elems = list(body)
-    n = len(elems)
-    if n < 40 or n % 2 != 0:
-        return
-    half = n // 2
-    # Use the serialized XML as a stable signature
-    first = [e.xml for e in elems[:half]]
-    second = [e.xml for e in elems[half:]]
-    if first == second:
-        for e in elems[half:]:
-            try:
-                body.remove(e)
-            except Exception:
-                pass
-
-
-
