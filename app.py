@@ -427,7 +427,7 @@ PIANO DI MANUTENZIONE (minimo consigliato)
 • Dispositivi differenziali: prova periodica con tasto "T" e verifiche strumentali (Idn/tempo) secondo periodicità e criticità del sito;
 • Conduttori e condutture: verifica integrità isolamento, fissaggi, protezioni meccaniche e segregazioni;
 • Collegamenti equipotenziali e PE: controllo continuità e integrità;
-• Comandi/emergenze (se presenti): prova funzionale e ripristino, verifica segnalazioni e cartellonistica;
+• Comandi/emergenze (se presenti): prova funzionale e ripristino, verifica segnalazioni e cartellonistica, prova di sgancio ogni mese;
 • Apparecchiature specifiche (es. wallbox/utenze dedicate): ispezione cavi e connettori, prova funzionale e aggiornamenti firmware se previsti dal costruttore.
 
 È raccomandata la tenuta di un registro manutenzione con data, attività eseguite, esito e nominativo dell’operatore."""
