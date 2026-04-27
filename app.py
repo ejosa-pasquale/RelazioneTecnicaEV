@@ -778,7 +778,7 @@ Le condutture della distribuzione saranno unicamente cavi unipolari tipo FG16R16
         "verifiche": verifiche,
         "manutenzione": manutenzione,
         "allegati": allegati,
-        "disclaimer_calcoli": "Calcoli e verifiche riportati sono di sintesi e a supporto documentale. Non sostituiscono un progetto esecutivo completo né le verifiche previste dalle norme applicabili.",
+        "disclaimer_calcoli": "Calcoli e verifiche riportati non sostituiscono le verifiche previste dalle norme applicabili.",
         "titolo_cover": "RELAZIONE TECNICA - IMPIANTO ELETTRICO (DiCo)",
         "sottotitolo_cover": oggetto,
         "nome_progetto": nome_progetto,
