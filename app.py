@@ -5,9 +5,9 @@ from datetime import date
 from calcoli import corrente_da_potenza, caduta_tensione, verifica_tt_ra_idn, zs_massima_tn
 from pdf_generator import genera_pdf_relazione_bytes
 
-st.set_page_config(page_title="Relazione Tecnica DiCo – Impianti Elettrici", layout="wide")
+st.set_page_config(page_title="Relazione Tecnica – Impianti Elettrici per Infrastrutture di Ricarica", layout="wide")
 
-st.title("Relazione Tecnica - Impianto Elettrico (Allegato alla DiCo)")
+st.title("Relazione Tecnica - Impianto Elettrico per Infrastrutture di Ricarica")
 st.caption("Compilazione guidata (stile v7) + calcoli essenziali + generazione PDF.")
 
 PROGETTISTA_BLOCCO = """Ing. Pasquale Senese
